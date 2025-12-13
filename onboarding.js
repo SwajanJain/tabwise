@@ -1007,19 +1007,18 @@ const COACH_STORAGE_KEY = 'postOnboardingCoach';
 
 const COACH_STEPS = {
   INTRO: 0,             // "This is your Smart Grid"
-  CLEANUP_FAVORITES: 1, // Remove junk favorites (with 2 options)
-  CLEANUP_MORE: 2,      // "Want to remove more?"
-  CLEANUP_WORKSPACES: 3,// Remove empty workspaces
-  SMART_SWITCH_1: 4,    // Click first (most used) favorite
-  SMART_SWITCH_2: 5,    // Click second favorite
-  SMART_SWITCH_3: 6,    // Click first again (the aha moment)
-  DUPLICATE_TAB: 7,     // Shift+Click to create duplicate
-  CHAOS_VIEW: 8,        // Show ungrouped tabs (the chaos)
-  MAGIC_MOMENT: 9,      // Group tabs (the transformation)
-  GROUPING_TRY: 10,     // Interactive: click group to expand/collapse
-  HIDE_TAB_BAR: 11,     // Platform-specific instructions to hide tab bar
-  IMMERSIVE_HINT: 12,   // Shortcut key to toggle panel
-  COMPLETE: 13
+  CLEANUP_FAVORITES: 1, // Remove junk favorites
+  CLEANUP_WORKSPACES: 2,// Remove empty workspaces
+  SMART_SWITCH_1: 3,    // Click first (most used) favorite
+  SMART_SWITCH_2: 4,    // Click second favorite
+  SMART_SWITCH_3: 5,    // Click first again (the aha moment)
+  DUPLICATE_TAB: 6,     // Shift+Click to create duplicate
+  CHAOS_VIEW: 7,        // Show ungrouped tabs (the chaos)
+  MAGIC_MOMENT: 8,      // Group tabs (the transformation)
+  GROUPING_TRY: 9,      // Interactive: click group to expand/collapse
+  HIDE_TAB_BAR: 10,     // Platform-specific instructions to hide tab bar
+  IMMERSIVE_HINT: 11,   // Shortcut key to toggle panel
+  COMPLETE: 12
 };
 
 // Track coach state during the flow
@@ -1032,9 +1031,7 @@ let coachFlowState = {
   junkFavorites: [],      // Identified junk favorites
   emptyWorkspaces: [],    // Identified empty workspaces
   removedFavorites: 0,
-  removedWorkspaces: 0,
-  // Flow control - prevent infinite loops
-  cleanupMoreShown: false // Track if "Want to remove more?" was already shown
+  removedWorkspaces: 0
 };
 
 /**
@@ -1450,40 +1447,7 @@ async function showStepCleanupFavorites(overlay, onNext, onSkip) {
 }
 
 /**
- * Step 2: CLEANUP_MORE - "Want to remove more?"
- */
-async function showStepCleanupMore(overlay, onContinue, onDone, onSkip) {
-  // Check if there are still junk favorites
-  const junkFavorites = await identifyJunkFavorites();
-
-  // If no more junk, move on
-  if (junkFavorites.length === 0) {
-    onDone();
-    return;
-  }
-
-  overlay.innerHTML = `
-    <div class="coach-card">
-      ${renderProgressDots(1)}
-      <div class="coach-content">
-        <div class="coach-title">Want to remove more?</div>
-        <div class="coach-subtitle">
-          We found ${junkFavorites.length} more that might not belong.
-        </div>
-        <div class="coach-actions">
-          <button class="coach-btn-primary" id="coach-continue">Show me</button>
-          <button class="coach-btn-skip" id="coach-done">I'm good, continue</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('coach-continue').addEventListener('click', onContinue);
-  document.getElementById('coach-done').addEventListener('click', onDone);
-}
-
-/**
- * Step 3: CLEANUP_WORKSPACES - Remove empty workspaces
+ * Step 2: CLEANUP_WORKSPACES - Remove empty workspaces
  */
 async function showStepCleanupWorkspaces(overlay, onNext, onSkip) {
   const problems = await identifyProblematicWorkspaces();
@@ -2009,7 +1973,7 @@ function showStepHideTabBar(overlay, onNext, onSkip) {
 
     overlay.innerHTML = `
       <div class="coach-card">
-        ${renderProgressDots(6, 8)}
+        ${renderProgressDots(5, 7)}
         <div class="coach-content">
           <div class="coach-title">Go immersive</div>
           ${instructions}
@@ -2036,7 +2000,7 @@ function showStepImmersiveHint(overlay, onDone, onSkip) {
 
     overlay.innerHTML = `
       <div class="coach-card">
-        ${renderProgressDots(7, 8)}
+        ${renderProgressDots(6, 7)}
         <div class="coach-content">
           <div class="coach-title">Toggle this panel anytime</div>
           <div class="coach-subtitle">
@@ -2069,7 +2033,7 @@ function showStepImmersiveHint(overlay, onDone, onSkip) {
 function showStepComplete(overlay, onDone) {
   overlay.innerHTML = `
     <div class="coach-card">
-      ${renderProgressDots(8, 8)}
+      ${renderProgressDots(7, 7)}
       <div class="coach-content">
         <div class="coach-success">
           <div class="coach-success-icon">🎉</div>
@@ -2150,27 +2114,7 @@ async function startPostOnboardingCoach() {
       case COACH_STEPS.CLEANUP_FAVORITES:
         await showStepCleanupFavorites(
           overlay,
-          () => {
-            // If we've already shown "Want to remove more?", go directly to workspaces
-            if (coachFlowState.cleanupMoreShown) {
-              goToStep(COACH_STEPS.CLEANUP_WORKSPACES);
-            } else {
-              goToStep(COACH_STEPS.CLEANUP_MORE);
-            }
-          },
-          skip
-        );
-        break;
-
-      case COACH_STEPS.CLEANUP_MORE:
-        await showStepCleanupMore(
-          overlay,
-          () => {
-            // "Show me" → mark shown, go back to show 2 more items
-            coachFlowState.cleanupMoreShown = true;
-            goToStep(COACH_STEPS.CLEANUP_FAVORITES);
-          },
-          () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES), // "I'm good" → go to workspaces
+          () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES),
           skip
         );
         break;
