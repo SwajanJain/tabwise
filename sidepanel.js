@@ -44,9 +44,9 @@ async function calculateTabStates() {
       continue;
     }
 
-    // Check favorites
+    // Check favorites (use precise matching for Google Docs/Sheets/Slides)
     for (const fav of state.favorites) {
-      if (matchesUrl(tab.url, fav.url)) {
+      if (matchesUrlPrecise(tab.url, fav.url)) {
         if (!tabStates.favorites[fav.id]) {
           tabStates.favorites[fav.id] = { tabCount: 0, isActive: false, tabIds: [] };
         }
@@ -58,10 +58,10 @@ async function calculateTabStates() {
       }
     }
 
-    // Check workspace items
+    // Check workspace items (use precise matching for Google Docs/Sheets/Slides)
     for (const [workspaceId, workspace] of Object.entries(state.workspaces)) {
       for (const item of workspace.items) {
-        if (matchesUrl(tab.url, item.url)) {
+        if (matchesUrlPrecise(tab.url, item.url)) {
           if (!tabStates.workspaceItems[item.id]) {
             tabStates.workspaceItems[item.id] = { tabCount: 0, isActive: false, tabIds: [] };
           }
