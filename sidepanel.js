@@ -1070,21 +1070,47 @@ function handleSearch(e) {
   }, 150);
 }
 
-function performSearch(query) {
+async function performSearch(query) {
   const results = [];
+
+  // Search open tabs first (highest priority)
+  try {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    tabs.forEach(tab => {
+      if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) return;
+
+      const title = (tab.title || '').toLowerCase();
+      const url = tab.url.toLowerCase();
+      if (title.includes(query) || url.includes(query)) {
+        results.push({
+          type: 'open-tab',
+          title: tab.title || new URL(tab.url).hostname,
+          url: tab.url,
+          tabId: tab.id,
+          badge: 'Open Tab'
+        });
+      }
+    });
+  } catch (err) {
+    console.error('[Search] Error querying tabs:', err);
+  }
 
   // Search favorites
   state.favorites.forEach(fav => {
     const title = (fav.title || '').toLowerCase();
     const url = fav.url.toLowerCase();
     if (title.includes(query) || url.includes(query)) {
-      results.push({
-        type: 'favorite',
-        title: fav.title || new URL(fav.url).hostname,
-        url: fav.url,
-        data: fav,
-        badge: 'Favorite'
-      });
+      // Check if this favorite is already in results as an open tab
+      const alreadyOpen = results.some(r => r.type === 'open-tab' && matchesUrl(r.url, fav.url));
+      if (!alreadyOpen) {
+        results.push({
+          type: 'favorite',
+          title: fav.title || new URL(fav.url).hostname,
+          url: fav.url,
+          data: fav,
+          badge: 'Favorite'
+        });
+      }
     }
   });
 
@@ -1094,21 +1120,32 @@ function performSearch(query) {
       const alias = (item.alias || '').toLowerCase();
       const url = item.url.toLowerCase();
       if (alias.includes(query) || url.includes(query)) {
-        results.push({
-          type: 'workspace-item',
-          title: item.alias || new URL(item.url).hostname,
-          url: item.url,
-          data: item,
-          badge: workspace.name
-        });
+        // Check if this item is already in results as an open tab
+        const alreadyOpen = results.some(r => r.type === 'open-tab' && matchesUrl(r.url, item.url));
+        if (!alreadyOpen) {
+          results.push({
+            type: 'workspace-item',
+            title: item.alias || new URL(item.url).hostname,
+            url: item.url,
+            data: item,
+            badge: workspace.name
+          });
+        }
       }
     });
   });
 
-  showSearchResults(results);
+  showSearchResults(results, query);
 }
 
-function showSearchResults(results) {
+// Store current search state for keyboard navigation
+let currentSearchResults = [];
+let currentSearchQuery = '';
+
+function showSearchResults(results, query = '') {
+  currentSearchResults = results;
+  currentSearchQuery = query;
+
   let container = document.querySelector('.search-results');
 
   if (!container) {
@@ -1118,7 +1155,7 @@ function showSearchResults(results) {
   }
 
   if (results.length === 0) {
-    container.innerHTML = '<div class="empty-state">No results found</div>';
+    container.innerHTML = `<div class="empty-state">No results found. Press Enter to search web.</div>`;
     return;
   }
 
@@ -1134,8 +1171,17 @@ function showSearchResults(results) {
 
   // Attach click handlers
   container.querySelectorAll('.search-result-item').forEach((el, index) => {
-    el.addEventListener('click', () => {
-      openUrl(results[index].url, 'new-tab');
+    el.addEventListener('click', async () => {
+      const result = results[index];
+
+      if (result.type === 'open-tab' && result.tabId) {
+        // Switch to existing tab
+        await chrome.tabs.update(result.tabId, { active: true });
+      } else {
+        // Open new tab for favorites/workspace items
+        openUrl(result.url, 'new-tab');
+      }
+
       hideSearchResults();
       document.getElementById('quick-search').value = '';
     });
@@ -1147,15 +1193,51 @@ function hideSearchResults() {
   if (container) {
     container.remove();
   }
+  // Clear search state
+  currentSearchResults = [];
+  currentSearchQuery = '';
   // Remove has-input class to show the floating + button again
   document.querySelector('.search-container')?.classList.remove('has-input');
 }
 
 function handleSearchKeydown(e) {
   const container = document.querySelector('.search-results');
+  const query = e.target.value.trim();
+
+  if (e.key === 'Escape') {
+    hideSearchResults();
+    e.target.value = '';
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+
+    // If we have results with a highlighted item, click it
+    if (container) {
+      const highlighted = container.querySelector('.highlighted');
+      if (highlighted) {
+        highlighted.click();
+        return;
+      }
+    }
+
+    // No results or no highlight - perform web search
+    if (query) {
+      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+      chrome.tabs.create({ url: searchUrl });
+      hideSearchResults();
+      e.target.value = '';
+    }
+    return;
+  }
+
+  // Arrow key navigation
   if (!container) return;
 
   const items = container.querySelectorAll('.search-result-item');
+  if (items.length === 0) return;
+
   const highlighted = container.querySelector('.highlighted');
   let currentIndex = highlighted ? parseInt(highlighted.dataset.index) : 0;
 
@@ -1167,12 +1249,6 @@ function handleSearchKeydown(e) {
     e.preventDefault();
     currentIndex = Math.max(currentIndex - 1, 0);
     updateHighlight(items, currentIndex);
-  } else if (e.key === 'Enter' && highlighted) {
-    e.preventDefault();
-    highlighted.click();
-  } else if (e.key === 'Escape') {
-    hideSearchResults();
-    e.target.value = '';
   }
 }
 
