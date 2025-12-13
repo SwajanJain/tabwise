@@ -471,6 +471,12 @@ class WorkspacesList {
   }
 
   enterEditMode(workspaceId) {
+    // Auto-expand if workspace is collapsed
+    const workspace = this.state.workspaces[workspaceId];
+    if (workspace && workspace.collapsed) {
+      this.callbacks.onToggleCollapse(workspaceId);
+    }
+
     this.editingWorkspaceId = workspaceId;
     this.render();
   }
