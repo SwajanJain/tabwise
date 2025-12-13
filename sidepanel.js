@@ -93,6 +93,42 @@ function matchesUrl(tabUrl, targetUrl) {
   }
 }
 
+// Precise URL matching for smart-switch (handles Google Docs/Sheets/Slides)
+function matchesUrlPrecise(tabUrl, targetUrl) {
+  try {
+    const tabUrlObj = new URL(tabUrl);
+    const targetUrlObj = new URL(targetUrl);
+
+    // Must match hostname
+    if (tabUrlObj.hostname !== targetUrlObj.hostname) {
+      return false;
+    }
+
+    // Special handling for docs.google.com (Docs, Sheets, Slides share same domain)
+    if (tabUrlObj.hostname === 'docs.google.com') {
+      // Extract the app type from path: /document/, /spreadsheets/, /presentation/
+      const tabAppType = tabUrlObj.pathname.split('/')[1];
+      const targetAppType = targetUrlObj.pathname.split('/')[1];
+      return tabAppType === targetAppType;
+    }
+
+    // Special handling for drive.google.com with different paths
+    if (tabUrlObj.hostname === 'drive.google.com') {
+      const tabPath = tabUrlObj.pathname.split('/')[1];
+      const targetPath = targetUrlObj.pathname.split('/')[1];
+      // If both have specific paths, they should match
+      if (tabPath && targetPath) {
+        return tabPath === targetPath;
+      }
+    }
+
+    // For all other sites, domain-level matching is fine
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Initialize
 async function init() {
   state = await Storage.getState();
@@ -782,8 +818,8 @@ async function handleClickFavorite(fav, mode = null, event = null) {
       const tabs = await chrome.tabs.query({ currentWindow: true });
       const matchingTab = tabs.find(tab => {
         if (!tab.url) return false;
-        // Use same domain-level matching as indicators
-        return matchesUrl(tab.url, fav.url);
+        // Use precise matching to distinguish Google Docs/Sheets/Slides
+        return matchesUrlPrecise(tab.url, fav.url);
       });
 
       if (matchingTab) {
@@ -946,8 +982,8 @@ async function handleOpenWorkspaceItem(item, mode = null, event = null) {
       const tabs = await chrome.tabs.query({ currentWindow: true });
       const matchingTab = tabs.find(tab => {
         if (!tab.url) return false;
-        // Use same domain-level matching as indicators
-        return matchesUrl(tab.url, item.url);
+        // Use precise matching to distinguish Google Docs/Sheets/Slides
+        return matchesUrlPrecise(tab.url, item.url);
       });
 
       if (matchingTab) {
