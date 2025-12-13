@@ -594,12 +594,6 @@ function isFirstLaunch(state) {
 function showOnboardingModal(onComplete) {
   showModal('', `
     <div class="onboarding-welcome">
-      <div class="onboarding-progress">
-        <span class="progress-dot active"></span>
-        <span class="progress-dot"></span>
-        <span class="progress-dot"></span>
-      </div>
-
       <div class="onboarding-pain-visual">
         <div class="tab-chaos">
           ${Array(12).fill('<span class="mini-tab"></span>').join('')}
@@ -652,7 +646,8 @@ function showOnboardingModal(onComplete) {
       // After creating workspaces, keep only Google Workspace expanded
       await collapseNonGoogleWorkspaces();
       hideModal();
-      showSuccessModal(result.summary, shouldAddGoogleWorkspace, onComplete);
+      // Go directly to post-onboarding coach (skip old screens 2 & 3)
+      if (onComplete) onComplete();
     } else {
       alert('Import failed. Please try again or start empty.');
       btn.disabled = false;
@@ -754,6 +749,7 @@ function showTipsModal(onComplete = null) {
   chrome.runtime.getPlatformInfo((info) => {
     const isMac = info?.os === 'mac';
 
+    const modifierKey = isMac ? '⌘' : 'Ctrl';
     const platformInstructions = isMac ? `
       <div class="immersive-section">
         <div class="immersive-section-title">Hide the tab bar</div>
@@ -770,7 +766,7 @@ function showTipsModal(onComplete = null) {
         <div class="immersive-section-title">Toggle this panel</div>
         <div class="immersive-step">
           <span class="step-number">3</span>
-          <span>Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd> to show/hide</span>
+          <span>Press <kbd>${modifierKey}</kbd> <kbd>Shift</kbd> <kbd>E</kbd> to show/hide</span>
         </div>
       </div>
     ` : `
@@ -785,7 +781,7 @@ function showTipsModal(onComplete = null) {
         <div class="immersive-section-title">Toggle this panel</div>
         <div class="immersive-step">
           <span class="step-number">2</span>
-          <span>Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd> to show/hide</span>
+          <span>Press <kbd>${modifierKey}</kbd> <kbd>Shift</kbd> <kbd>E</kbd> to show/hide</span>
         </div>
       </div>
     `;
@@ -1021,8 +1017,9 @@ const COACH_STEPS = {
   CHAOS_VIEW: 8,        // Show ungrouped tabs (the chaos)
   MAGIC_MOMENT: 9,      // Group tabs (the transformation)
   GROUPING_TRY: 10,     // Interactive: click group to expand/collapse
-  IMMERSIVE_HINT: 11,   // Suggest immersive mode (skippable)
-  COMPLETE: 12
+  HIDE_TAB_BAR: 11,     // Platform-specific instructions to hide tab bar
+  IMMERSIVE_HINT: 12,   // Shortcut key to toggle panel
+  COMPLETE: 13
 };
 
 // Track coach state during the flow
@@ -1950,47 +1947,104 @@ async function showStepGroupingOld(overlay, onNext, onSkip) {
 }
 
 /**
- * Step 11: Immersive Hint (gentle suggestion, skippable)
+ * Step 11: Hide Tab Bar - Platform-specific instructions
  */
-function showStepImmersiveHint(overlay, onDone, onSkip) {
+function showStepHideTabBar(overlay, onNext, onSkip) {
   // Move overlay back to bottom for final steps
   overlay.classList.remove('position-top');
 
-  overlay.innerHTML = `
-    <div class="coach-card">
-      ${renderProgressDots(6, 7)}
-      <div class="coach-content">
-        <div class="coach-title">One more thing...</div>
-        <div class="coach-subtitle">
-          For the full experience, toggle this panel with:<br>
+  chrome.runtime.getPlatformInfo((info) => {
+    const isMac = info?.os === 'mac';
+
+    const instructions = isMac ? `
+      <div class="coach-subtitle">
+        For a cleaner look, hide the tab bar:
+      </div>
+      <div class="coach-steps-list">
+        <div class="coach-step-item">
+          <span class="coach-step-num">1</span>
+          <span>Enter full screen mode</span>
         </div>
-        <div class="coach-keys">
-          <span class="coach-key">Ctrl</span>
-          <span class="coach-key">Shift</span>
-          <span class="coach-key">E</span>
-        </div>
-        <div class="coach-subtitle" style="margin-top: 8px; font-size: 11px; opacity: 0.7">
-          Hide it when you need space. Summon it when you need to switch.
-        </div>
-        <div class="coach-actions">
-          <button class="coach-btn-primary" id="coach-done">Got it!</button>
-          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        <div class="coach-step-item">
+          <span class="coach-step-num">2</span>
+          <span>Menu → <strong>View</strong> → Uncheck <strong>"Always Show Toolbar in Full Screen"</strong></span>
         </div>
       </div>
-    </div>
-  `;
+    ` : `
+      <div class="coach-subtitle">
+        For a cleaner look, hide the tab bar:
+      </div>
+      <div class="coach-steps-list">
+        <div class="coach-step-item">
+          <span class="coach-step-num">1</span>
+          <span>Press <kbd>F11</kbd> for full screen</span>
+        </div>
+      </div>
+    `;
 
-  document.getElementById('coach-done').addEventListener('click', onDone);
-  document.getElementById('coach-skip').addEventListener('click', onSkip);
+    overlay.innerHTML = `
+      <div class="coach-card">
+        ${renderProgressDots(6, 8)}
+        <div class="coach-content">
+          <div class="coach-title">Go immersive</div>
+          ${instructions}
+          <div class="coach-actions">
+            <button class="coach-btn-primary" id="coach-next">Next</button>
+            <button class="coach-btn-skip" id="coach-skip">Skip</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('coach-next').addEventListener('click', onNext);
+    document.getElementById('coach-skip').addEventListener('click', onSkip);
+  });
 }
 
 /**
- * Step 12: Complete - Celebration!
+ * Step 12: Immersive Hint - Shortcut key to toggle panel
+ */
+function showStepImmersiveHint(overlay, onDone, onSkip) {
+  chrome.runtime.getPlatformInfo((info) => {
+    const isMac = info?.os === 'mac';
+    const modifierKey = isMac ? '⌘' : 'Ctrl';
+
+    overlay.innerHTML = `
+      <div class="coach-card">
+        ${renderProgressDots(7, 8)}
+        <div class="coach-content">
+          <div class="coach-title">Toggle this panel anytime</div>
+          <div class="coach-subtitle">
+            Show or hide with:
+          </div>
+          <div class="coach-keys">
+            <span class="coach-key">${modifierKey}</span>
+            <span class="coach-key">Shift</span>
+            <span class="coach-key">E</span>
+          </div>
+          <div class="coach-subtitle" style="margin-top: 8px; font-size: 11px; opacity: 0.7">
+            Hide it when you need space. Summon it when you need to switch.
+          </div>
+          <div class="coach-actions">
+            <button class="coach-btn-primary" id="coach-done">Got it!</button>
+            <button class="coach-btn-skip" id="coach-skip">Skip</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('coach-done').addEventListener('click', onDone);
+    document.getElementById('coach-skip').addEventListener('click', onSkip);
+  });
+}
+
+/**
+ * Step 13: Complete - Celebration!
  */
 function showStepComplete(overlay, onDone) {
   overlay.innerHTML = `
     <div class="coach-card">
-      ${renderProgressDots(7, 7)}
+      ${renderProgressDots(8, 8)}
       <div class="coach-content">
         <div class="coach-success">
           <div class="coach-success-icon">🎉</div>
@@ -2138,6 +2192,14 @@ async function startPostOnboardingCoach() {
 
       case COACH_STEPS.GROUPING_TRY:
         await showStepGroupingTry(
+          overlay,
+          () => goToStep(COACH_STEPS.HIDE_TAB_BAR),
+          skip
+        );
+        break;
+
+      case COACH_STEPS.HIDE_TAB_BAR:
+        showStepHideTabBar(
           overlay,
           () => goToStep(COACH_STEPS.IMMERSIVE_HINT),
           skip
