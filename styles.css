@@ -94,11 +94,29 @@ body {
   top: 0;
   z-index: 100;
   background: var(--bg-primary);
-  padding: var(--spacing-xl) var(--spacing-lg) var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.header-row-1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--spacing-md);
+}
+
+.header-row-2 {
+  display: flex;
+  justify-content: center;
+}
+
+.header-row-2:has(.url-bar.expanded) {
+  justify-content: stretch;
+}
+
+.header-row-2:has(.url-bar.expanded) .url-bar {
+  width: 100%;
 }
 
 .header-nav {
@@ -174,6 +192,127 @@ body {
 
 .icon-btn:active {
   background: var(--bg-strong-hover);
+}
+
+/* URL Bar in Header Row 2 */
+.url-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-radius: 4px;
+  max-width: 100%;
+}
+
+.url-bar:hover {
+  background: var(--bg-hover);
+}
+
+.url-bar:hover .url-bar-domain {
+  color: var(--text-secondary);
+}
+
+.url-bar.expanded {
+  background: var(--bg-subtle);
+  flex: 1;
+  max-width: none;
+}
+
+.url-bar-lock {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.url-bar-lock svg {
+  width: 10px;
+  height: 10px;
+}
+
+.url-bar-lock.secure {
+  color: var(--success-color, #22c55e);
+}
+
+.url-bar-domain {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.url-bar-input {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.url-bar.expanded .url-bar-input {
+  display: block;
+  font-size: 13px;
+}
+
+.url-bar.expanded .url-bar-domain {
+  display: none;
+}
+
+.url-bar.expanded .url-bar-lock svg {
+  width: 12px;
+  height: 12px;
+}
+
+.url-bar.expanded .url-bar-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.url-bar-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.url-bar-copy svg {
+  width: 12px;
+  height: 12px;
+}
+
+.url-bar:hover .url-bar-copy,
+.url-bar.expanded .url-bar-copy {
+  opacity: 1;
+}
+
+.url-bar-copy:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.url-bar-copy.copied {
+  color: var(--success-color, #22c55e);
+  opacity: 1;
 }
 
 /* Search Section */

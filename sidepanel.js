@@ -125,6 +125,7 @@ async function init() {
       await calculateTabStates();
       renderUI();
       setupTabStateListeners();
+      initUrlBar();
 
       if (state.preferences.showOpenTabs) {
         loadOpenTabs();
@@ -147,6 +148,7 @@ async function init() {
   renderUI();
   attachEventListeners();
   setupTabStateListeners();
+  initUrlBar();
 
   // Load open tabs if preference is enabled
   if (state.preferences.showOpenTabs) {
@@ -188,6 +190,7 @@ function setupTabStateListeners() {
   chrome.tabs.onActivated.addListener(async (activeInfo) => {
     await calculateTabStates();
     renderUI();
+    updateUrlBar();
   });
 
   // Listen for custom refresh-tabs event (used by coach flow)
@@ -200,6 +203,167 @@ function setupTabStateListeners() {
   // Note: onCreated, onRemoved, onUpdated listeners are already at bottom of file
   // They will call calculateTabStates() + renderUI() when needed
 }
+
+// ============================================
+// URL Bar Functionality
+// ============================================
+
+let currentActiveTabUrl = null;
+let urlBarExpanded = false;
+
+// Initialize URL bar
+function initUrlBar() {
+  const urlBar = document.getElementById('url-bar');
+  const urlBarDomain = document.getElementById('url-bar-domain');
+  const urlBarInput = document.getElementById('url-bar-input');
+  const urlBarCopy = document.getElementById('url-bar-copy');
+  const urlBarLock = document.querySelector('.url-bar-lock');
+
+  // Update URL bar with current active tab
+  updateUrlBar();
+
+  // Click to expand/collapse
+  urlBar.addEventListener('click', (e) => {
+    // Don't toggle if clicking copy button
+    if (e.target.closest('.url-bar-copy')) return;
+
+    if (!urlBarExpanded) {
+      expandUrlBar();
+    }
+  });
+
+  // Handle input changes
+  urlBarInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      navigateToUrl(urlBarInput.value);
+    } else if (e.key === 'Escape') {
+      collapseUrlBar();
+    }
+  });
+
+  // Click outside to collapse
+  document.addEventListener('click', (e) => {
+    if (urlBarExpanded && !e.target.closest('.url-bar')) {
+      collapseUrlBar();
+    }
+  });
+
+  // Copy button
+  urlBarCopy.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await copyCurrentUrl();
+  });
+}
+
+// Update URL bar display
+async function updateUrlBar() {
+  const urlBarDomain = document.getElementById('url-bar-domain');
+  const urlBarLock = document.querySelector('.url-bar-lock');
+
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (activeTab && activeTab.url) {
+      currentActiveTabUrl = activeTab.url;
+
+      // Parse URL to get domain
+      try {
+        const url = new URL(activeTab.url);
+        urlBarDomain.textContent = url.hostname || activeTab.url;
+
+        // Update lock icon for HTTPS
+        if (url.protocol === 'https:') {
+          urlBarLock.classList.add('secure');
+        } else {
+          urlBarLock.classList.remove('secure');
+        }
+      } catch {
+        urlBarDomain.textContent = activeTab.url;
+        urlBarLock.classList.remove('secure');
+      }
+    } else {
+      urlBarDomain.textContent = 'New Tab';
+      currentActiveTabUrl = '';
+      urlBarLock.classList.remove('secure');
+    }
+  } catch (err) {
+    console.error('[URLBar] Error updating:', err);
+    urlBarDomain.textContent = 'Error';
+  }
+}
+
+// Expand URL bar to show full URL and input
+function expandUrlBar() {
+  const urlBar = document.getElementById('url-bar');
+  const urlBarInput = document.getElementById('url-bar-input');
+
+  urlBarExpanded = true;
+  urlBar.classList.add('expanded');
+
+  // CSS handles visibility via .expanded class
+  urlBarInput.value = currentActiveTabUrl || '';
+  urlBarInput.focus();
+  urlBarInput.select();
+}
+
+// Collapse URL bar back to domain view
+function collapseUrlBar() {
+  const urlBar = document.getElementById('url-bar');
+
+  urlBarExpanded = false;
+  urlBar.classList.remove('expanded');
+  // CSS handles visibility via .expanded class
+}
+
+// Navigate to URL
+async function navigateToUrl(url) {
+  let finalUrl = url.trim();
+
+  // Add protocol if missing
+  if (finalUrl && !finalUrl.match(/^[a-zA-Z]+:\/\//)) {
+    // Check if it looks like a URL (has a dot)
+    if (finalUrl.includes('.')) {
+      finalUrl = 'https://' + finalUrl;
+    } else {
+      // Treat as search query
+      finalUrl = `https://www.google.com/search?q=${encodeURIComponent(finalUrl)}`;
+    }
+  }
+
+  if (finalUrl) {
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab) {
+        await chrome.tabs.update(activeTab.id, { url: finalUrl });
+      }
+    } catch (err) {
+      console.error('[URLBar] Navigation error:', err);
+    }
+  }
+
+  collapseUrlBar();
+}
+
+// Copy current URL to clipboard
+async function copyCurrentUrl() {
+  const urlBarCopy = document.getElementById('url-bar-copy');
+
+  if (currentActiveTabUrl) {
+    try {
+      await navigator.clipboard.writeText(currentActiveTabUrl);
+
+      // Show copied feedback
+      urlBarCopy.classList.add('copied');
+      setTimeout(() => {
+        urlBarCopy.classList.remove('copied');
+      }, 1500);
+    } catch (err) {
+      console.error('[URLBar] Copy error:', err);
+    }
+  }
+}
+
+// ============================================
 
 // Render favorites grid
 function renderFavorites() {
@@ -1658,6 +1822,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url || changeInfo.status === 'complete') {
     await calculateTabStates();
     renderUI();
+  }
+
+  // Update URL bar if the active tab's URL changed
+  if (changeInfo.url && tab.active) {
+    updateUrlBar();
   }
 
   // Refresh open tabs list if URL or title changed and feature is enabled
