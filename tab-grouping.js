@@ -2,6 +2,38 @@
 // Handles automatic tab grouping by domain
 
 /**
+ * Get grouping key for a URL
+ * Handles special cases like docs.google.com where Docs/Sheets/Slides should be separate
+ * @param {string} url - The URL to get grouping key for
+ * @returns {string} - Grouping key (usually hostname, but more specific for certain domains)
+ */
+function getGroupingKey(url) {
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
+
+    // Special handling for docs.google.com (Docs, Sheets, Slides, Forms)
+    if (hostname === 'docs.google.com') {
+      const appType = urlObj.pathname.split('/')[1];
+      if (appType) {
+        // Return friendly names for display
+        const appNames = {
+          'document': 'Google Docs',
+          'spreadsheets': 'Google Sheets',
+          'presentation': 'Google Slides',
+          'forms': 'Google Forms'
+        };
+        return appNames[appType] || hostname;
+      }
+    }
+
+    return hostname;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Analyze tabs to determine if grouping banner should be shown
  * @param {Array} tabs - List of chrome tabs
  * @param {Object} groupingState - Current grouping state from storage
@@ -28,15 +60,15 @@ function shouldShowGroupingBanner(tabs, groupingState) {
     return { shouldShow: false, stats: null };
   }
 
-  // Group tabs by domain
+  // Group tabs by domain (with special handling for Google apps)
   const domainGroups = {};
   validTabs.forEach(tab => {
     try {
-      const hostname = new URL(tab.url).hostname;
-      if (!domainGroups[hostname]) {
-        domainGroups[hostname] = [];
+      const groupKey = getGroupingKey(tab.url);
+      if (!domainGroups[groupKey]) {
+        domainGroups[groupKey] = [];
       }
-      domainGroups[hostname].push(tab);
+      domainGroups[groupKey].push(tab);
     } catch (e) {
       // Skip invalid URLs
     }
@@ -73,19 +105,19 @@ function groupTabsByDomain(tabs) {
     tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://')
   );
 
-  // Group by domain
+  // Group by domain (with special handling for Google apps)
   const domainGroups = {};
   validTabs.forEach(tab => {
     try {
-      const hostname = new URL(tab.url).hostname;
-      if (!domainGroups[hostname]) {
-        domainGroups[hostname] = {
-          domain: hostname,
+      const groupKey = getGroupingKey(tab.url);
+      if (!domainGroups[groupKey]) {
+        domainGroups[groupKey] = {
+          domain: groupKey,
           tabs: [],
           collapsed: false // Start expanded
         };
       }
-      domainGroups[hostname].tabs.push(tab);
+      domainGroups[groupKey].tabs.push(tab);
     } catch (e) {
       // Skip invalid URLs
     }
