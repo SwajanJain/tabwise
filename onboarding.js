@@ -652,8 +652,7 @@ function showOnboardingModal(onComplete) {
       // After creating workspaces, keep only Google Workspace expanded
       await collapseNonGoogleWorkspaces();
       hideModal();
-      showSuccessModal(result.summary, shouldAddGoogleWorkspace);
-      if (onComplete) onComplete();
+      showSuccessModal(result.summary, shouldAddGoogleWorkspace, onComplete);
     } else {
       alert('Import failed. Please try again or start empty.');
       btn.disabled = false;
@@ -685,8 +684,11 @@ function showOnboardingModal(onComplete) {
 
 /**
  * Show success modal after import (Screen 2 - Simple celebration)
+ * @param {Object} summary - Import summary
+ * @param {boolean} hasGoogleWorkspace - Whether Google Workspace was added
+ * @param {Function} onComplete - Callback when entire onboarding flow completes
  */
-function showSuccessModal(summary, hasGoogleWorkspace = false) {
+function showSuccessModal(summary, hasGoogleWorkspace = false, onComplete = null) {
   // Calculate total workspaces (including Google Workspace if added)
   const totalWorkspaces = summary.workspaces.length + (hasGoogleWorkspace ? 1 : 0);
 
@@ -734,18 +736,21 @@ function showSuccessModal(summary, hasGoogleWorkspace = false) {
 
   document.getElementById('next-tips-btn').addEventListener('click', () => {
     hideModal();
-    showTipsModal();
+    showTipsModal(onComplete);
   });
 
   document.getElementById('skip-tips-btn').addEventListener('click', () => {
     hideModal();
+    // User skipped tips, call onComplete now
+    if (onComplete) onComplete();
   });
 }
 
 /**
  * Show tips modal (Screen 3 - Immersive experience setup)
+ * @param {Function} onComplete - Callback when onboarding flow completes
  */
-function showTipsModal() {
+function showTipsModal(onComplete = null) {
   chrome.runtime.getPlatformInfo((info) => {
     const isMac = info?.os === 'mac';
 
@@ -810,6 +815,8 @@ function showTipsModal() {
 
     document.getElementById('start-using-btn').addEventListener('click', () => {
       hideModal();
+      // Onboarding complete - now start the post-onboarding coach
+      if (onComplete) onComplete();
     });
   });
 }
@@ -995,3 +1002,1260 @@ async function importAllBookmarks() {
     };
   }
 }
+
+// ========================================
+// POST-ONBOARDING COACH (Complete Flow)
+// ========================================
+
+const COACH_STORAGE_KEY = 'postOnboardingCoach';
+
+const COACH_STEPS = {
+  INTRO: 0,             // "This is your Smart Grid"
+  CLEANUP_FAVORITES: 1, // Remove junk favorites (with 2 options)
+  CLEANUP_MORE: 2,      // "Want to remove more?"
+  CLEANUP_WORKSPACES: 3,// Remove empty workspaces
+  SMART_SWITCH_1: 4,    // Click first (most used) favorite
+  SMART_SWITCH_2: 5,    // Click second favorite
+  SMART_SWITCH_3: 6,    // Click first again (the aha moment)
+  DUPLICATE_TAB: 7,     // Shift+Click to create duplicate
+  CHAOS_VIEW: 8,        // Show ungrouped tabs (the chaos)
+  MAGIC_MOMENT: 9,      // Group tabs (the transformation)
+  GROUPING_TRY: 10,     // Interactive: click group to expand/collapse
+  IMMERSIVE_HINT: 11,   // Suggest immersive mode (skippable)
+  COMPLETE: 12
+};
+
+// Track coach state during the flow
+let coachFlowState = {
+  // Smart switch tracking
+  firstFavoriteId: null,
+  secondFavoriteId: null,
+  clickCount: 0,
+  // Cleanup tracking
+  junkFavorites: [],      // Identified junk favorites
+  emptyWorkspaces: [],    // Identified empty workspaces
+  removedFavorites: 0,
+  removedWorkspaces: 0,
+  // Flow control - prevent infinite loops
+  cleanupMoreShown: false // Track if "Want to remove more?" was already shown
+};
+
+/**
+ * Get coach state from local storage
+ */
+async function getCoachState() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([COACH_STORAGE_KEY], (result) => {
+      resolve(result[COACH_STORAGE_KEY] || {
+        completed: false,
+        skipped: false,
+        currentStep: COACH_STEPS.INTRO,
+        cleanupFavoritesDone: false,
+        cleanupWorkspacesDone: false,
+        smartSwitchDone: false,
+        groupingDone: false
+      });
+    });
+  });
+}
+
+/**
+ * Save coach state to local storage
+ */
+async function setCoachState(state) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [COACH_STORAGE_KEY]: state }, resolve);
+  });
+}
+
+/**
+ * Check if coach should be shown
+ */
+async function shouldShowCoach() {
+  const state = await getCoachState();
+  return !state.completed && !state.skipped;
+}
+
+/**
+ * Check if user already has enough tabs with duplicates
+ */
+async function checkExistingTabChaos() {
+  const tabs = await chrome.tabs.query({ currentWindow: true });
+  const domainCounts = {};
+
+  for (const tab of tabs) {
+    if (!tab.url || tab.url.startsWith('chrome://')) continue;
+    try {
+      const hostname = new URL(tab.url).hostname;
+      domainCounts[hostname] = (domainCounts[hostname] || 0) + 1;
+    } catch {}
+  }
+
+  const hasDuplicates = Object.values(domainCounts).some(count => count >= 2);
+  const hasManyTabs = tabs.length >= 5;
+
+  return { hasDuplicates, hasManyTabs, tabCount: tabs.length };
+}
+
+// Generic favicon detection using blob size comparison
+let genericFaviconSize = null;
+
+/**
+ * Calibrate by fetching a known non-existent URL to get the generic globe size.
+ * Uses .invalid TLD which is reserved and guaranteed to have no favicon.
+ */
+async function calibrateGenericFavicon() {
+  const dummyUrl = chrome.runtime.getURL(
+    `/_favicon/?pageUrl=${encodeURIComponent('https://no-favicon.invalid/')}&size=32`
+  );
+  try {
+    const response = await fetch(dummyUrl);
+    const blob = await response.blob();
+    genericFaviconSize = blob.size;
+    console.log('[Favicon] Calibrated generic globe size:', genericFaviconSize);
+  } catch (e) {
+    console.error('[Favicon] Calibration failed:', e);
+  }
+}
+
+/**
+ * Check if a URL has the generic gray globe favicon
+ * @param {string} siteUrl - The URL to check
+ * @returns {Promise<boolean>} - True if favicon is the generic globe
+ */
+async function hasGenericFavicon(siteUrl) {
+  if (genericFaviconSize === null) {
+    await calibrateGenericFavicon();
+  }
+
+  // If calibration failed, can't detect
+  if (genericFaviconSize === null) {
+    return false;
+  }
+
+  const faviconUrl = chrome.runtime.getURL(
+    `/_favicon/?pageUrl=${encodeURIComponent(siteUrl)}&size=32`
+  );
+
+  try {
+    const response = await fetch(faviconUrl);
+    const blob = await response.blob();
+    return blob.size === genericFaviconSize;
+  } catch (e) {
+    console.warn('[Favicon] Failed to check:', siteUrl, e);
+    return false;
+  }
+}
+
+/**
+ * Identify favorites to suggest for cleanup
+ * Prioritizes: 1) items with generic globe favicon, 2) least used items
+ */
+async function identifyJunkFavorites() {
+  const state = await Storage.getState();
+
+  if (state.favorites.length < 2) {
+    return [];
+  }
+
+  // Calibrate once at the start
+  await calibrateGenericFavicon();
+
+  // Check for favorites with generic globe favicon
+  const genericFaviconFavorites = [];
+  for (const fav of state.favorites) {
+    if (await hasGenericFavicon(fav.url)) {
+      genericFaviconFavorites.push({
+        ...fav,
+        reason: 'no-favicon'
+      });
+    }
+    // Limit to 2 for cleanup suggestion
+    if (genericFaviconFavorites.length >= 2) break;
+  }
+
+  // If we found items with generic favicons, suggest those
+  if (genericFaviconFavorites.length > 0) {
+    return genericFaviconFavorites;
+  }
+
+  // Fallback: suggest least used items (last in the array)
+  // Favorites array is ordered by usage: most used first, least used last
+  const leastUsedItems = state.favorites.slice(-2);
+  return leastUsedItems.map(fav => ({
+    ...fav,
+    reason: 'least-used'
+  }));
+}
+
+/**
+ * Identify problematic workspaces (empty or bloated)
+ */
+async function identifyProblematicWorkspaces() {
+  const state = await Storage.getState();
+  const problems = {
+    empty: [],
+    bloated: []
+  };
+
+  for (const [id, workspace] of Object.entries(state.workspaces)) {
+    if (workspace.items.length === 0) {
+      problems.empty.push({ id, ...workspace });
+    } else if (workspace.items.length >= 15) {
+      problems.bloated.push({ id, ...workspace, itemCount: workspace.items.length });
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * Create the coach overlay element
+ */
+function createCoachOverlay() {
+  const existing = document.getElementById('coach-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'coach-overlay';
+  overlay.className = 'coach-overlay';
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+/**
+ * Render progress dots
+ */
+function renderProgressDots(currentStep, totalSteps = 6) {
+  let dots = '';
+  for (let i = 0; i < totalSteps; i++) {
+    let className = 'coach-dot';
+    if (i < currentStep) className += ' completed';
+    else if (i === currentStep) className += ' active';
+    dots += `<span class="${className}"></span>`;
+  }
+  return `<div class="coach-progress">${dots}</div>`;
+}
+
+/**
+ * Get favorite display name
+ */
+function getFavoriteName(fav) {
+  if (fav.title) return fav.title;
+  try {
+    return new URL(fav.url).hostname.replace('www.', '');
+  } catch {
+    return 'this site';
+  }
+}
+
+/**
+ * Highlight a specific favorite
+ */
+function highlightFavorite(favoriteId) {
+  // Remove existing highlights
+  document.querySelectorAll('.fav-item.coach-target').forEach(el => {
+    el.classList.remove('coach-target');
+  });
+
+  if (favoriteId) {
+    const favEl = document.querySelector(`.fav-item[data-id="${favoriteId}"]`);
+    if (favEl) {
+      favEl.classList.add('coach-target');
+    }
+  }
+}
+
+/**
+ * Highlight multiple favorites (for showing 2 options)
+ */
+function highlightFavorites(favoriteIds) {
+  // Remove existing highlights
+  document.querySelectorAll('.fav-item.coach-target').forEach(el => {
+    el.classList.remove('coach-target');
+  });
+
+  for (const id of favoriteIds) {
+    const favEl = document.querySelector(`.fav-item[data-id="${id}"]`);
+    if (favEl) {
+      favEl.classList.add('coach-target');
+    }
+  }
+}
+
+/**
+ * Highlight the entire favorites grid
+ */
+function highlightFavoritesGrid() {
+  const grid = document.querySelector('.favorites-grid');
+  if (grid) {
+    grid.classList.add('coach-highlight');
+  }
+}
+
+/**
+ * Highlight a workspace
+ */
+function highlightWorkspace(workspaceId) {
+  // Remove existing workspace highlights
+  document.querySelectorAll('.workspace.coach-target').forEach(el => {
+    el.classList.remove('coach-target');
+  });
+
+  if (workspaceId) {
+    const wsEl = document.querySelector(`.workspace[data-id="${workspaceId}"]`);
+    if (wsEl) {
+      wsEl.classList.add('coach-target');
+      // Scroll into view
+      wsEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+}
+
+/**
+ * Clear all coach highlights
+ */
+function clearCoachHighlights() {
+  document.querySelectorAll('.coach-target, .coach-highlight').forEach(el => {
+    el.classList.remove('coach-target', 'coach-highlight');
+  });
+  // Also clear group header highlights
+  document.querySelectorAll('.tab-group-header.coach-target').forEach(el => {
+    el.classList.remove('coach-target');
+  });
+}
+
+/**
+ * Get the most used favorites (top of the grid = most used)
+ * Returns [first, second] for smart switch demo
+ */
+async function getMostUsedFavorites() {
+  const state = await Storage.getState();
+  // Favorites are ordered by usage (top = most used)
+  // We need at least 2 for the smart switch demo
+  if (state.favorites.length >= 2) {
+    return [state.favorites[0], state.favorites[1]];
+  } else if (state.favorites.length === 1) {
+    return [state.favorites[0], null];
+  }
+  return [null, null];
+}
+
+/**
+ * Get workspace name for display
+ */
+function getWorkspaceName(workspace) {
+  return workspace.emoji
+    ? `${workspace.emoji} ${workspace.name}`
+    : workspace.name;
+}
+
+// ========================================
+// STEP RENDERERS
+// ========================================
+
+/**
+ * Step 0: INTRO - "This is your Smart Grid"
+ */
+function showStepIntro(overlay, onNext, onSkip) {
+  // Highlight the entire favorites grid
+  highlightFavoritesGrid();
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(0)}
+      <div class="coach-content">
+        <div class="coach-title">This is your Smart Grid</div>
+        <div class="coach-subtitle">
+          Your top 15 most-used sites and below are your workspaces from bookmarks.<br>
+          <span style="opacity: 0.7; font-style: italic;">See anything that doesn't fit?</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Quick review</button>
+          <button class="coach-btn-skip" id="coach-skip">Looks good</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', () => {
+    clearCoachHighlights();
+    onNext();
+  });
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+}
+
+/**
+ * Step 1: CLEANUP_FAVORITES - Give 2 specific options to remove
+ */
+async function showStepCleanupFavorites(overlay, onNext, onSkip) {
+  const junkFavorites = await identifyJunkFavorites();
+  coachFlowState.junkFavorites = junkFavorites;
+
+  // If no junk favorites, skip to workspaces
+  if (junkFavorites.length === 0) {
+    onNext();
+    return;
+  }
+
+  // Highlight the junk favorites
+  highlightFavorites(junkFavorites.map(f => f.id));
+
+  // Build the message based on detection reason
+  let message = '';
+  const name1 = getFavoriteName(junkFavorites[0]);
+  const reason1 = junkFavorites[0].reason;
+
+  if (junkFavorites.length === 1) {
+    const reasonText = reason1 === 'no-favicon'
+      ? 'Missing icon — might not belong.'
+      : 'Least visited — might not need quick access.';
+    message = `
+      <strong>${name1}</strong><br>
+      <span style="font-size: 11px; opacity: 0.7">${reasonText}</span><br>
+      Right-click → Remove
+    `;
+  } else {
+    const name2 = getFavoriteName(junkFavorites[1]);
+    message = `
+      Remove one that doesn't fit:<br>
+      <strong>${name1}</strong> or <strong>${name2}</strong><br>
+      <span style="font-size: 11px; opacity: 0.7">Right-click → Remove</span>
+    `;
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(1)}
+      <div class="coach-content">
+        <div class="coach-title">Quick cleanup</div>
+        <div class="coach-subtitle">${message}</div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Done</button>
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', () => {
+    clearCoachHighlights();
+    coachFlowState.removedFavorites++;
+    onNext();
+  });
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+}
+
+/**
+ * Step 2: CLEANUP_MORE - "Want to remove more?"
+ */
+async function showStepCleanupMore(overlay, onContinue, onDone, onSkip) {
+  // Check if there are still junk favorites
+  const junkFavorites = await identifyJunkFavorites();
+
+  // If no more junk, move on
+  if (junkFavorites.length === 0) {
+    onDone();
+    return;
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(1)}
+      <div class="coach-content">
+        <div class="coach-title">Want to remove more?</div>
+        <div class="coach-subtitle">
+          We found ${junkFavorites.length} more that might not belong.
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-continue">Show me</button>
+          <button class="coach-btn-skip" id="coach-done">I'm good, continue</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-continue').addEventListener('click', onContinue);
+  document.getElementById('coach-done').addEventListener('click', onDone);
+}
+
+/**
+ * Step 3: CLEANUP_WORKSPACES - Remove empty workspaces
+ */
+async function showStepCleanupWorkspaces(overlay, onNext, onSkip) {
+  const problems = await identifyProblematicWorkspaces();
+  coachFlowState.emptyWorkspaces = problems.empty;
+
+  // If no empty workspaces, skip
+  if (problems.empty.length === 0) {
+    onNext();
+    return;
+  }
+
+  const firstEmpty = problems.empty[0];
+  highlightWorkspace(firstEmpty.id);
+
+  const wsName = getWorkspaceName(firstEmpty);
+  const count = problems.empty.length;
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(1)}
+      <div class="coach-content">
+        <div class="coach-title">Empty workspace${count > 1 ? 's' : ''}</div>
+        <div class="coach-subtitle">
+          <strong>${wsName}</strong> is empty${count > 1 ? ` (and ${count - 1} more)` : ''}.<br>
+          Right-click → Delete to remove.
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Done</button>
+          <button class="coach-btn-skip" id="coach-skip">Keep them</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', () => {
+    clearCoachHighlights();
+    onNext();
+  });
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+}
+
+/**
+ * Step 4: Smart Switch - Click First (most used)
+ */
+async function showStepSmartSwitch1(overlay, onSkip) {
+  const [firstFav, secondFav] = await getMostUsedFavorites();
+
+  if (!firstFav) {
+    // No favorites, skip smart switch demo
+    return null;
+  }
+
+  // Store for later steps
+  coachFlowState.firstFavoriteId = firstFav.id;
+  coachFlowState.secondFavoriteId = secondFav?.id;
+  coachFlowState.clickCount = 0;
+
+  // Scroll to favorites section so user can see the highlighted item
+  const favoritesSection = document.querySelector('.favorites-section');
+  if (favoritesSection) {
+    favoritesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  highlightFavorite(firstFav.id);
+
+  const firstName = getFavoriteName(firstFav);
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(2)}
+      <div class="coach-content">
+        <div class="coach-title">Now, the magic trick</div>
+        <div class="coach-subtitle">
+          Click on <strong>${firstName}</strong>
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Waiting for click...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+
+  return firstFav.id;
+}
+
+/**
+ * Step 5: Smart Switch - Click Second
+ */
+async function showStepSmartSwitch2(overlay, onSkip) {
+  const [firstFav, secondFav] = await getMostUsedFavorites();
+
+  if (!secondFav) {
+    // Only one favorite, can't do the full demo
+    return null;
+  }
+
+  // Scroll to favorites section
+  const favoritesSection = document.querySelector('.favorites-section');
+  if (favoritesSection) {
+    favoritesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  highlightFavorite(secondFav.id);
+
+  const firstName = getFavoriteName(firstFav);
+  const secondName = getFavoriteName(secondFav);
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(2)}
+      <div class="coach-content">
+        <div class="coach-title">Good! Now click <strong>${secondName}</strong></div>
+        <div class="coach-subtitle">
+          <span style="font-size: 11px; opacity: 0.7">You just opened ${firstName}. Now let's switch.</span>
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Waiting for click...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+
+  return secondFav.id;
+}
+
+/**
+ * Step 6: Smart Switch - Click First Again (the aha moment!)
+ */
+async function showStepSmartSwitch3(overlay, onSkip) {
+  const state = await Storage.getState();
+  const firstFav = state.favorites.find(f => f.id === coachFlowState.firstFavoriteId) || state.favorites[0];
+
+  if (!firstFav) return null;
+
+  // Scroll to favorites section
+  const favoritesSection = document.querySelector('.favorites-section');
+  if (favoritesSection) {
+    favoritesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  highlightFavorite(firstFav.id);
+
+  const firstName = getFavoriteName(firstFav);
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(2)}
+      <div class="coach-content">
+        <div class="coach-title">Now click <strong>${firstName}</strong> again</div>
+        <div class="coach-subtitle">
+          <span style="font-size: 11px; opacity: 0.7">Watch carefully what happens...</span>
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Waiting for click...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+
+  return firstFav.id;
+}
+
+/**
+ * Step 4b: Smart Switch Success Toast
+ */
+function showSmartSwitchSuccess(overlay, onNext) {
+  clearCoachHighlights();
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(2)}
+      <div class="coach-content">
+        <div class="coach-success">
+          <div class="coach-success-icon">✓</div>
+          <div class="coach-success-title">Same tab. No duplicate.</div>
+          <div class="coach-success-subtitle">
+            Horizontal tabs would've opened another one.
+          </div>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Continue</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', onNext);
+}
+
+/**
+ * Step 7: Duplicate Tab - Shift+Click instruction
+ */
+async function showStepDuplicateTab(overlay, onSkip) {
+  const state = await Storage.getState();
+  const firstFav = state.favorites.find(f => f.id === coachFlowState.firstFavoriteId) || state.favorites[0];
+
+  if (!firstFav) return null;
+
+  // Scroll to favorites section
+  const favoritesSection = document.querySelector('.favorites-section');
+  if (favoritesSection) {
+    favoritesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  highlightFavorite(firstFav.id);
+
+  const firstName = getFavoriteName(firstFav);
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(3, 7)}
+      <div class="coach-content">
+        <div class="coach-title">But what if you need two?</div>
+        <div class="coach-subtitle">
+          Hold <kbd>Shift</kbd> and click <strong>${firstName}</strong><br>
+          <span style="font-size: 11px; opacity: 0.7">This opens a new tab for the same site.</span>
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Shift + Click...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+
+  return firstFav.id;
+}
+
+/**
+ * Step 8: Chaos View - Show ungrouped tabs
+ */
+async function showStepChaosView(overlay, onNext, onSkip) {
+  clearCoachHighlights();
+
+  // Position overlay at top so user can see Open Tabs below
+  overlay.classList.add('position-top');
+
+  // Ensure grouping is OFF to show the chaos
+  await Storage.setTabsGrouped(false);
+
+  // Trigger UI refresh to show ungrouped state
+  window.dispatchEvent(new CustomEvent('refresh-tabs'));
+
+  // Scroll to Open Tabs section
+  const openTabsSection = document.querySelector('#open-tabs-section');
+  if (openTabsSection) {
+    openTabsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(4, 7)}
+      <div class="coach-content">
+        <div class="coach-title">This is your tab bar normally</div>
+        <div class="coach-subtitle">
+          Two tabs of the same site, scattered.<br>
+          <span style="font-size: 11px; opacity: 0.7">Imagine 40 of these...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Show me the fix</button>
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', onNext);
+  document.getElementById('coach-skip').addEventListener('click', onSkip);
+}
+
+/**
+ * Step 9: Magic Moment - Group the tabs
+ */
+async function showStepMagicMoment(overlay, onNext, onSkip) {
+  // Keep overlay at top
+  overlay.classList.add('position-top');
+
+  // Enable grouping - the magic transformation
+  await Storage.setTabsGrouped(true);
+
+  // Trigger UI refresh to show grouped state
+  window.dispatchEvent(new CustomEvent('refresh-tabs'));
+
+  // Wait for async refresh to complete (event listener is async)
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Scroll to Open Tabs section
+  const openTabsSection = document.querySelector('#open-tabs-section');
+  if (openTabsSection) {
+    openTabsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(5, 7)}
+      <div class="coach-content">
+        <div class="coach-success">
+          <div class="coach-success-icon">✨</div>
+          <div class="coach-success-title">Same site, one group</div>
+          <div class="coach-success-subtitle">
+            Automatically organized.
+          </div>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Continue</button>
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', onNext);
+  document.getElementById('coach-skip').addEventListener('click', onSkip);
+}
+
+/**
+ * Step 10: Grouping Try - Interactive expand/collapse
+ */
+async function showStepGroupingTry(overlay, onComplete, onSkip) {
+  // Keep overlay at top
+  overlay.classList.add('position-top');
+
+  // Scroll to Open Tabs section
+  const openTabsSection = document.querySelector('#open-tabs-section');
+  if (openTabsSection) {
+    openTabsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Highlight a group header in Open Tabs (if any)
+  const groupHeader = document.querySelector('.tab-group-header');
+  if (groupHeader) {
+    groupHeader.classList.add('coach-target');
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card" id="grouping-try-card">
+      ${renderProgressDots(6, 7)}
+      <div class="coach-content">
+        <div class="coach-title">Try it yourself</div>
+        <div class="coach-subtitle">
+          Click the group to expand and collapse.
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Click the group...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+
+  // Store callback for when user clicks group
+  coachFlowState.onGroupClicked = () => {
+    showGroupingSuccess(overlay, onComplete);
+  };
+}
+
+/**
+ * Step 10b: Grouping Success - shown after user clicks group
+ */
+function showGroupingSuccess(overlay, onComplete) {
+  clearCoachHighlights();
+  // Keep overlay at top
+  overlay.classList.add('position-top');
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(6, 7)}
+      <div class="coach-content">
+        <div class="coach-success">
+          <div class="coach-success-icon">✓</div>
+          <div class="coach-success-title">No more tab chaos</div>
+          <div class="coach-success-subtitle">
+            40 tabs? Still organized.
+          </div>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-done">Done</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-done').addEventListener('click', onComplete);
+}
+
+/**
+ * Old Step 7: Tab Grouping (now replaced by new flow, kept for reference)
+ */
+async function showStepGroupingOld(overlay, onNext, onSkip) {
+  const { tabCount, hasDuplicates } = await checkExistingTabChaos();
+
+  let message = '';
+  if (hasDuplicates) {
+    message = 'Look at your Open Tabs below — tabs from the same site are grouped together.';
+  } else if (tabCount >= 3) {
+    message = 'When you have multiple tabs from the same site, they\'ll be grouped together.';
+  } else {
+    message = 'As you browse, tabs from the same site will be automatically grouped.';
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(3)}
+      <div class="coach-content">
+        <div class="coach-title">Tabs stay organized</div>
+        <div class="coach-subtitle">
+          ${message}<br>
+          <span style="font-size: 11px; opacity: 0.7">No more hunting through 40 identical tabs.</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Got it</button>
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', onNext);
+  document.getElementById('coach-skip').addEventListener('click', onSkip);
+}
+
+/**
+ * Step 11: Immersive Hint (gentle suggestion, skippable)
+ */
+function showStepImmersiveHint(overlay, onDone, onSkip) {
+  // Move overlay back to bottom for final steps
+  overlay.classList.remove('position-top');
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(6, 7)}
+      <div class="coach-content">
+        <div class="coach-title">One more thing...</div>
+        <div class="coach-subtitle">
+          For the full experience, toggle this panel with:<br>
+        </div>
+        <div class="coach-keys">
+          <span class="coach-key">Ctrl</span>
+          <span class="coach-key">Shift</span>
+          <span class="coach-key">E</span>
+        </div>
+        <div class="coach-subtitle" style="margin-top: 8px; font-size: 11px; opacity: 0.7">
+          Hide it when you need space. Summon it when you need to switch.
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-done">Got it!</button>
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-done').addEventListener('click', onDone);
+  document.getElementById('coach-skip').addEventListener('click', onSkip);
+}
+
+/**
+ * Step 12: Complete - Celebration!
+ */
+function showStepComplete(overlay, onDone) {
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(7, 7)}
+      <div class="coach-content">
+        <div class="coach-success">
+          <div class="coach-success-icon">🎉</div>
+          <div class="coach-success-title">You're all set!</div>
+          <div class="coach-success-subtitle">
+            Same key to hide. Same key to summon.<br>
+            That's your new workflow.
+          </div>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-done">Got it</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-done').addEventListener('click', onDone);
+}
+
+/**
+ * Dismiss the coach with animation
+ */
+function dismissCoach(overlay, callback) {
+  const card = overlay.querySelector('.coach-card');
+  if (card) {
+    card.classList.add('exiting');
+    setTimeout(() => {
+      overlay.remove();
+      if (callback) callback();
+    }, 200);
+  } else {
+    overlay.remove();
+    if (callback) callback();
+  }
+}
+
+/**
+ * Main coach flow controller
+ */
+async function startPostOnboardingCoach() {
+  const shouldShow = await shouldShowCoach();
+  if (!shouldShow) {
+    console.log('[Coach] Already completed or skipped');
+    return;
+  }
+
+  let coachState = await getCoachState();
+  const overlay = createCoachOverlay();
+
+  const skip = async () => {
+    coachState.skipped = true;
+    await setCoachState(coachState);
+    clearCoachHighlights();
+    dismissCoach(overlay);
+  };
+
+  const complete = async () => {
+    coachState.completed = true;
+    await setCoachState(coachState);
+    clearCoachHighlights();
+    dismissCoach(overlay);
+  };
+
+  const goToStep = async (step) => {
+    coachState.currentStep = step;
+    await setCoachState(coachState);
+    renderCurrentStep();
+  };
+
+  const renderCurrentStep = async () => {
+    const step = coachState.currentStep;
+
+    switch (step) {
+      case COACH_STEPS.INTRO:
+        showStepIntro(overlay, () => goToStep(COACH_STEPS.CLEANUP_FAVORITES), skip);
+        break;
+
+      case COACH_STEPS.CLEANUP_FAVORITES:
+        await showStepCleanupFavorites(
+          overlay,
+          () => {
+            // If we've already shown "Want to remove more?", go directly to workspaces
+            if (coachFlowState.cleanupMoreShown) {
+              goToStep(COACH_STEPS.CLEANUP_WORKSPACES);
+            } else {
+              goToStep(COACH_STEPS.CLEANUP_MORE);
+            }
+          },
+          skip
+        );
+        break;
+
+      case COACH_STEPS.CLEANUP_MORE:
+        await showStepCleanupMore(
+          overlay,
+          () => {
+            // "Show me" → mark shown, go back to show 2 more items
+            coachFlowState.cleanupMoreShown = true;
+            goToStep(COACH_STEPS.CLEANUP_FAVORITES);
+          },
+          () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES), // "I'm good" → go to workspaces
+          skip
+        );
+        break;
+
+      case COACH_STEPS.CLEANUP_WORKSPACES:
+        await showStepCleanupWorkspaces(
+          overlay,
+          () => goToStep(COACH_STEPS.SMART_SWITCH_1),
+          () => goToStep(COACH_STEPS.SMART_SWITCH_1) // Skip also goes to smart switch
+        );
+        break;
+
+      case COACH_STEPS.SMART_SWITCH_1:
+        await showStepSmartSwitch1(overlay, skip);
+        break;
+
+      case COACH_STEPS.SMART_SWITCH_2:
+        await showStepSmartSwitch2(overlay, skip);
+        break;
+
+      case COACH_STEPS.SMART_SWITCH_3:
+        await showStepSmartSwitch3(overlay, skip);
+        break;
+
+      case COACH_STEPS.DUPLICATE_TAB:
+        await showStepDuplicateTab(overlay, skip);
+        break;
+
+      case COACH_STEPS.CHAOS_VIEW:
+        await showStepChaosView(
+          overlay,
+          () => goToStep(COACH_STEPS.MAGIC_MOMENT),
+          skip
+        );
+        break;
+
+      case COACH_STEPS.MAGIC_MOMENT:
+        await showStepMagicMoment(
+          overlay,
+          () => goToStep(COACH_STEPS.GROUPING_TRY),
+          skip
+        );
+        break;
+
+      case COACH_STEPS.GROUPING_TRY:
+        await showStepGroupingTry(
+          overlay,
+          () => goToStep(COACH_STEPS.IMMERSIVE_HINT),
+          skip
+        );
+        break;
+
+      case COACH_STEPS.IMMERSIVE_HINT:
+        showStepImmersiveHint(
+          overlay,
+          () => goToStep(COACH_STEPS.COMPLETE),
+          () => goToStep(COACH_STEPS.COMPLETE) // Skip goes to complete
+        );
+        break;
+
+      case COACH_STEPS.COMPLETE:
+        showStepComplete(overlay, complete);
+        break;
+    }
+  };
+
+  renderCurrentStep();
+}
+
+/**
+ * Called when panel visibility changes
+ * (No longer used for coach flow, but kept for potential future use)
+ */
+async function onPanelVisibilityChanged(isVisible) {
+  // Currently not used - immersive hint is just informational
+  // Could be used for analytics or future features
+}
+
+/**
+ * Called when user clicks a favorite
+ */
+async function onFavoriteClicked(favoriteId) {
+  const coachState = await getCoachState();
+
+  if (coachState.completed || coachState.skipped) return;
+
+  const step = coachState.currentStep;
+
+  if (step === COACH_STEPS.SMART_SWITCH_1) {
+    // First click done, go to second
+    coachFlowState.clickCount = 1;
+    coachState.currentStep = COACH_STEPS.SMART_SWITCH_2;
+    await setCoachState(coachState);
+    setTimeout(() => startPostOnboardingCoach(), 300);
+
+  } else if (step === COACH_STEPS.SMART_SWITCH_2) {
+    // Second click done, go to third
+    coachFlowState.clickCount = 2;
+    coachState.currentStep = COACH_STEPS.SMART_SWITCH_3;
+    await setCoachState(coachState);
+    setTimeout(() => startPostOnboardingCoach(), 300);
+
+  } else if (step === COACH_STEPS.SMART_SWITCH_3) {
+    // Third click (back to first) - this is the aha moment!
+    coachFlowState.clickCount = 3;
+    coachState.smartSwitchDone = true;
+
+    // Show success, then move to DUPLICATE_TAB step (new flow)
+    const overlay = document.getElementById('coach-overlay');
+    if (overlay) {
+      showSmartSwitchSuccess(overlay, async () => {
+        coachState.currentStep = COACH_STEPS.DUPLICATE_TAB;
+        await setCoachState(coachState);
+        startPostOnboardingCoach();
+      });
+    }
+  }
+}
+
+/**
+ * Called when user Shift+Clicks a favorite (creates duplicate)
+ * Now used in the DUPLICATE_TAB step of the coach flow
+ */
+async function onDuplicateCreated() {
+  const coachState = await getCoachState();
+
+  if (coachState.completed || coachState.skipped) return;
+
+  const step = coachState.currentStep;
+
+  if (step === COACH_STEPS.DUPLICATE_TAB) {
+    // User created a duplicate - move to chaos view
+    console.log('[Coach] Duplicate created via Shift+Click - advancing to chaos view');
+    coachState.currentStep = COACH_STEPS.CHAOS_VIEW;
+    await setCoachState(coachState);
+    setTimeout(() => startPostOnboardingCoach(), 500);
+  }
+}
+
+/**
+ * Called when user clicks a group header in Open Tabs
+ * Used in the GROUPING_TRY step
+ */
+async function onGroupHeaderClicked() {
+  const coachState = await getCoachState();
+
+  if (coachState.completed || coachState.skipped) return;
+
+  const step = coachState.currentStep;
+
+  if (step === COACH_STEPS.GROUPING_TRY) {
+    // User clicked the group - show success
+    if (coachFlowState.onGroupClicked) {
+      coachFlowState.onGroupClicked();
+    }
+  }
+}
+
+// Export for use in sidepanel.js
+window.PostOnboardingCoach = {
+  start: startPostOnboardingCoach,
+  onPanelVisibilityChanged,
+  onFavoriteClicked,
+  onDuplicateCreated,
+  onGroupHeaderClicked,
+  shouldShowCoach
+};

@@ -251,6 +251,10 @@ function renderGroupedTabs(groupedData, callbacks, tabAliases = {}) {
       group.collapsed = !group.collapsed;
       groupEl.classList.toggle('collapsed');
       if (callbacks.onGroupToggle) callbacks.onGroupToggle(group.domain, group.collapsed);
+      // Notify coach of group header click (for onboarding)
+      if (window.PostOnboardingCoach && window.PostOnboardingCoach.onGroupHeaderClicked) {
+        window.PostOnboardingCoach.onGroupHeaderClicked();
+      }
     });
 
     // Close all tabs in group

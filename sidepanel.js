@@ -13,6 +13,14 @@ panelPort.onMessage.addListener((message) => {
   }
 });
 
+// Track panel visibility for post-onboarding coach
+document.addEventListener('visibilitychange', () => {
+  const isVisible = document.visibilityState === 'visible';
+  if (window.PostOnboardingCoach) {
+    window.PostOnboardingCoach.onPanelVisibilityChanged(isVisible);
+  }
+});
+
 // Tab state tracking for indicators
 let tabStates = {
   favorites: {}, // favoriteId -> { tabCount, isActive, tabIds[] }
@@ -121,6 +129,13 @@ async function init() {
       if (state.preferences.showOpenTabs) {
         loadOpenTabs();
       }
+
+      // Start post-onboarding coach after a brief delay
+      setTimeout(() => {
+        if (window.PostOnboardingCoach) {
+          window.PostOnboardingCoach.start();
+        }
+      }, 500);
     });
 
     return; // Don't continue with normal init
@@ -141,10 +156,30 @@ async function init() {
 
 // Render entire UI
 async function renderUI() {
+  // Preserve coach-target highlights before re-rendering
+  const highlightedFavoriteIds = [];
+  document.querySelectorAll('.fav-item.coach-target').forEach(el => {
+    if (el.dataset.id) highlightedFavoriteIds.push(el.dataset.id);
+  });
+  const highlightedWorkspaceIds = [];
+  document.querySelectorAll('.workspace.coach-target').forEach(el => {
+    if (el.dataset.id) highlightedWorkspaceIds.push(el.dataset.id);
+  });
+
   renderFavorites();
   renderWorkspaces();
   updateOpenTabsVisibility();
   updateFooterStats();
+
+  // Restore coach-target highlights after re-rendering
+  highlightedFavoriteIds.forEach(id => {
+    const el = document.querySelector(`.fav-item[data-id="${id}"]`);
+    if (el) el.classList.add('coach-target');
+  });
+  highlightedWorkspaceIds.forEach(id => {
+    const el = document.querySelector(`.workspace[data-id="${id}"]`);
+    if (el) el.classList.add('coach-target');
+  });
 }
 
 // Setup real-time tab state listeners
@@ -153,6 +188,13 @@ function setupTabStateListeners() {
   chrome.tabs.onActivated.addListener(async (activeInfo) => {
     await calculateTabStates();
     renderUI();
+  });
+
+  // Listen for custom refresh-tabs event (used by coach flow)
+  window.addEventListener('refresh-tabs', async () => {
+    // Refresh state from storage first (important for grouping state changes)
+    state = await Storage.getState();
+    loadOpenTabs();
   });
 
   // Note: onCreated, onRemoved, onUpdated listeners are already at bottom of file
@@ -529,6 +571,11 @@ async function handleRemoveFavorite(id) {
 }
 
 async function handleClickFavorite(fav, mode = null, event = null) {
+  // Notify post-onboarding coach of favorite click
+  if (window.PostOnboardingCoach) {
+    window.PostOnboardingCoach.onFavoriteClicked();
+  }
+
   const openMode = mode || state.preferences.openBehavior;
 
   // Smart switching enabled?
@@ -538,6 +585,10 @@ async function handleClickFavorite(fav, mode = null, event = null) {
       const newTab = await chrome.tabs.create({ url: fav.url });
       await updateFavoriteBinding(fav.id, newTab.id);
       console.log(`[SmartSwitch] Force new tab for ${fav.title || 'favorite'}`);
+      // Notify coach of duplicate creation
+      if (window.PostOnboardingCoach) {
+        window.PostOnboardingCoach.onDuplicateCreated();
+      }
       return;
     }
 
@@ -698,6 +749,10 @@ async function handleOpenWorkspaceItem(item, mode = null, event = null) {
       const newTab = await chrome.tabs.create({ url: item.url });
       await updateWorkspaceItemBinding(item.id, newTab.id);
       console.log(`[SmartSwitch] Force new tab for ${item.alias || 'workspace item'}`);
+      // Notify coach of duplicate creation
+      if (window.PostOnboardingCoach) {
+        window.PostOnboardingCoach.onDuplicateCreated();
+      }
       return;
     }
 

@@ -1990,6 +1990,390 @@ body {
 }
 
 /* ========================================
+   POST-ONBOARDING COACH
+   ======================================== */
+
+.coach-overlay {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: var(--spacing-md);
+  pointer-events: none;
+}
+
+/* Top-positioned overlay for steps where user needs to see Open Tabs below */
+.coach-overlay.position-top {
+  bottom: auto;
+  top: 60px; /* Below the header */
+}
+
+.coach-overlay.position-top .coach-card {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  animation: coachSlideDown 0.3s ease-out;
+}
+
+@keyframes coachSlideDownFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.coach-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: 12px;
+  padding: var(--spacing-lg);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+  animation: coachSlideUp 0.3s ease-out;
+}
+
+.coach-overlay.position-top .coach-card {
+  animation: coachSlideDownFromTop 0.3s ease-out;
+}
+
+@keyframes coachSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.coach-card.exiting {
+  animation: coachSlideDown 0.2s ease-in forwards;
+}
+
+@keyframes coachSlideDown {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
+
+.coach-progress {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: var(--spacing-md);
+}
+
+.coach-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gray-600);
+  transition: all 0.3s ease;
+}
+
+.coach-dot.active {
+  background: var(--accent-color);
+  transform: scale(1.3);
+}
+
+.coach-dot.completed {
+  background: #22C55E;
+}
+
+.coach-content {
+  text-align: center;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.coach-content.transitioning {
+  animation: coachFade 0.2s ease;
+}
+
+@keyframes coachFade {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.coach-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.coach-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-md);
+  line-height: 1.4;
+}
+
+.coach-keys {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin: var(--spacing-md) 0;
+}
+
+.coach-key {
+  background: linear-gradient(180deg, var(--bg-hover) 0%, var(--bg-subtle) 100%);
+  border: 1px solid var(--border-medium);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 36px;
+  text-align: center;
+}
+
+.coach-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.coach-btn-primary {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.coach-btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.coach-btn-skip {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.coach-btn-skip:hover {
+  color: var(--text-secondary);
+}
+
+.coach-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.coach-waiting-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.coach-pulse {
+  animation: coachPulse 2s ease-in-out infinite;
+}
+
+@keyframes coachPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Success state */
+.coach-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.coach-success-icon {
+  width: 48px;
+  height: 48px;
+  background: rgba(34, 197, 94, 0.15);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: var(--spacing-sm);
+  animation: coachSuccessPop 0.4s ease-out;
+}
+
+@keyframes coachSuccessPop {
+  0% { transform: scale(0); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.coach-success-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.coach-success-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 240px;
+}
+
+/* Highlight effect for favorites during coach */
+.favorites-grid.coach-highlight {
+  position: relative;
+}
+
+.favorites-grid.coach-highlight::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--accent-color);
+  border-radius: 12px;
+  animation: coachHighlightPulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes coachHighlightPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+/* Individual favorite highlight during coach */
+.fav-item.coach-target {
+  position: relative;
+  z-index: 10;
+}
+
+.fav-item.coach-target::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--accent-color);
+  border-radius: 10px;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.fav-item.coach-target::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+/* Ensure coach-target highlight persists on hover */
+.fav-item.coach-target:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+}
+
+.fav-item.coach-target:hover::after {
+  border: 2px solid var(--accent-color);
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+}
+
+.fav-item.coach-target:hover::before {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* Show close button without hover when targeted for removal */
+.fav-item.coach-target .close-btn {
+  display: flex;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes coachTargetPulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+/* Workspace highlight during coach */
+.workspace.coach-target {
+  position: relative;
+}
+
+.workspace.coach-target::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--accent-color);
+  border-radius: 12px;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.workspace.coach-target::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* Keyboard key styling for coach */
+.coach-card kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Tab group header highlight during coach */
+.tab-group-header.coach-target {
+  position: relative;
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-radius: 6px;
+}
+
+.tab-group-header.coach-target::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--accent-color);
+  border-radius: 8px;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ========================================
    TAB GROUPING FEATURE
    ======================================== */
 
