@@ -1954,33 +1954,58 @@ function showStepHideTabBar(overlay, onNext, onSkip) {
   overlay.classList.remove('position-top');
 
   chrome.runtime.getPlatformInfo((info) => {
-    const isMac = info?.os === 'mac';
+    const platform = info?.os;
+    const isMac = platform === 'mac';
+    const isChromeOS = platform === 'cros';
 
-    const instructions = isMac ? `
-      <div class="coach-subtitle">
-        For a cleaner look, hide the tab bar:
-      </div>
-      <div class="coach-steps-list">
-        <div class="coach-step-item">
-          <span class="coach-step-num">1</span>
-          <span>Enter full screen mode</span>
+    let instructions;
+
+    if (isMac) {
+      instructions = `
+        <div class="coach-subtitle">
+          For a cleaner look, hide the tab bar:
         </div>
-        <div class="coach-step-item">
-          <span class="coach-step-num">2</span>
-          <span>Menu → <strong>View</strong> → Uncheck <strong>"Always Show Toolbar in Full Screen"</strong></span>
+        <div class="coach-steps-list">
+          <div class="coach-step-item">
+            <span class="coach-step-num">1</span>
+            <span>Enter full screen mode</span>
+          </div>
+          <div class="coach-step-item">
+            <span class="coach-step-num">2</span>
+            <span>Menu → <strong>View</strong> → Uncheck <strong>"Always Show Toolbar in Full Screen"</strong></span>
+          </div>
         </div>
-      </div>
-    ` : `
-      <div class="coach-subtitle">
-        For a cleaner look, hide the tab bar:
-      </div>
-      <div class="coach-steps-list">
-        <div class="coach-step-item">
-          <span class="coach-step-num">1</span>
-          <span>Press <kbd>F11</kbd> for full screen</span>
+      `;
+    } else if (isChromeOS) {
+      instructions = `
+        <div class="coach-subtitle">
+          For a cleaner look, go full screen:
         </div>
-      </div>
-    `;
+        <div class="coach-steps-list">
+          <div class="coach-step-item">
+            <span class="coach-step-num">1</span>
+            <span>Press <kbd>⎋</kbd> (Fullscreen key) or <kbd>F4</kbd></span>
+          </div>
+          <div class="coach-step-item">
+            <span class="coach-step-num">2</span>
+            <span>The tab bar hides automatically in full screen</span>
+          </div>
+        </div>
+      `;
+    } else {
+      // Windows / Linux
+      instructions = `
+        <div class="coach-subtitle">
+          For a cleaner look, hide the tab bar:
+        </div>
+        <div class="coach-steps-list">
+          <div class="coach-step-item">
+            <span class="coach-step-num">1</span>
+            <span>Press <kbd>F11</kbd> for full screen</span>
+          </div>
+        </div>
+      `;
+    }
 
     overlay.innerHTML = `
       <div class="coach-card">
