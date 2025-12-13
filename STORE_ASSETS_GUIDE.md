@@ -69,7 +69,7 @@ This guide explains what assets you need to create for the Chrome Web Store list
 
 **Design tips:**
 - Use the extension icon
-- Add tagline: "Arc's Vertical Tabs for Any Browser"
+- Add tagline: "Vertical Tab Manager"
 - Keep it simple and professional
 - Use brand colors
 
@@ -84,7 +84,7 @@ Already have this in README, but optimize for Chrome Web Store:
 
 **Short Description (132 characters max):**
 ```
-Arc-style vertical tabs & workspaces for Chrome. Smart tab switching, organized contexts, zero tab duplication.
+Vertical tabs sidebar with workspaces, smart tab switching, and favorites. Organize tabs the way they were meant to be.
 ```
 
 **Detailed Description (no limit):**
@@ -114,7 +114,7 @@ Before submitting, verify:
 - [x] Manifest V3 configured
 - [x] All permissions justified in description (see template above)
 - [ ] Description is clear and accurate
-- [ ] No trademark violations in name/description (we use "Arc-Inspired")
+- [ ] No trademark violations in name/description
 - [ ] Tested extension works in latest Chrome
 - [ ] Tested all features: favorites, workspaces, search, screenshots, tab grouping, onboarding
 
@@ -126,7 +126,7 @@ Use this template for the Chrome Web Store description:
 
 **Short Description (132 characters max):**
 ```
-Arc-style vertical tabs & workspaces for Chrome. Smart switching, tab grouping, screenshots, and one-click setup from your history.
+Vertical tabs sidebar with workspaces, smart tab switching, and favorites. Organize tabs the way they were meant to be.
 ```
 
 **Detailed Description:**
@@ -134,7 +134,7 @@ Arc-style vertical tabs & workspaces for Chrome. Smart switching, tab grouping, 
 ```markdown
 You have 47 tabs open. You can't find Slack. You just opened a 4th Gmail tab.
 
-Arc-Inspired Workspaces brings vertical tab management to Chrome, Brave, Edge, and AI browsers like Comet and Atlas.
+Tabwise brings vertical tab management to Chrome, Brave, Edge, and AI browsers like Comet and Atlas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -232,7 +232,7 @@ Back, forward, refresh buttons right in the sidebar header. Control the active t
 
 • 100% local — no servers, no tracking, no analytics
 • History analysis stays on your device
-• Open source: github.com/SwajanJain/arc-style-workspaces
+• Open source: github.com/SwajanJain/tabwise
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -272,9 +272,9 @@ Questions? Visit our GitHub repo.
    - Make sure it's viewable without login
 
 3. **Avoid trademark issues:**
-   - We use "Arc-Inspired" (shows it's a tribute, not official)
-   - Don't claim affiliation with The Browser Company
-   - Credit Arc Browser in description
+   - Use original branding ("Tabwise")
+   - Don't claim affiliation with other browsers
+   - Keep descriptions factual
 
 4. **Respond quickly to review feedback:**
    - Chrome reviewers may ask questions

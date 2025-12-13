@@ -1,8 +1,8 @@
-# Arc-Inspired Workspaces: Vertical Tab Management for Any Chromium Browser
+# Tabwise — Vertical Tab Manager
 
-> **Bring Arc's best feature to Chrome, Brave, Comet, Dia and Atlas** — Vertical tabs, workspaces, and smart tab switching. Finally get Arc's organization in the browser of your choice.
+> **Bring vertical tabs to Chrome, Brave, Edge, Comet, Dia and Atlas** — Workspaces, smart tab switching, and favorites. Finally organize your tabs the way they were meant to be.
 
-[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=google-chrome&logoColor=white)](https://github.com/SwajanJain/arc-style-workspaces)
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=google-chrome&logoColor=white)](https://github.com/SwajanJain/tabwise)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -31,7 +31,7 @@
 
 ## ✨ The Solution
 
-**Arc-Inspired Workspaces** brings vertical tab management to Chrome/Edge/Brave/Comet with:
+**Tabwise** brings vertical tab management to Chrome/Edge/Brave/Comet with:
 
 ### 🎯 Smart Tab Switching (Arc's Killer Feature)
 
@@ -119,14 +119,14 @@ Not for: casual browsers with <5 tabs, or those who prefer horizontal layouts.
 
 ---
 
-## 🆚 Why Not Just Use Arc?
+## 🆚 Why Tabwise?
 
-* Arc = ✅ design + vertical tabs, ❌ AI roadmap, ❌ Windows support slowing.
-* Comet/Atlas = ✅ AI/agentic browsing, ❌ horizontal tabs, ❌ poor workspace management.
-* Chrome/Brave = ✅ stable, extensible, ❌ no vertical tabs.
+* Arc = ✅ great vertical tabs, ❌ discontinued updates, ❌ no AI future.
+* Comet/Atlas/Dia = ✅ AI-native browsing, ❌ horizontal tabs only.
+* Chrome/Brave/Edge = ✅ stable, extensible, ❌ no vertical tabs.
 
-**This extension = The bridge.**
-Arc's vertical tab power + modern AI browsers + your preferred environment.
+**Tabwise = The bridge.**
+Vertical tab power in any browser you choose.
 
 ---
 
@@ -135,8 +135,8 @@ Arc's vertical tab power + modern AI browsers + your preferred environment.
 ### From Source
 
 ```bash
-git clone https://github.com/SwajanJain/arc-style-workspaces.git
-cd arc-style-workspaces/side-panel
+git clone https://github.com/SwajanJain/tabwise.git
+cd tabwise
 ```
 
 1. Go to your browser's extensions page (`chrome://extensions`, `brave://extensions`, or `comet://extensions`).
@@ -237,8 +237,8 @@ Fork, branch, PR — contributions welcome.
 
 ## 🙏 Credits
 
-Inspired by **Arc Browser** by The Browser Company.
-Built for everyone who loves Arc's UX but wants AI + choice of browser.
+Inspired by the vertical tab experience from **Arc Browser**.
+Built for everyone who wants organized tabs in any browser.
 
 ---
 
@@ -256,4 +256,4 @@ MIT License - Free to use, modify, and distribute.
 
 ---
 
-**Install today and reclaim your browsing workspace.** 🚀
+**Install Tabwise today and finally organize your tabs.** 🚀

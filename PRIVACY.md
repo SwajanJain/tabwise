@@ -1,6 +1,6 @@
-# Privacy Policy for Arc-Inspired Workspaces
+# Privacy Policy for Tabwise — Vertical Tab Manager
 
-**Last Updated:** November 24, 2024
+**Last Updated:** December 13, 2024
 
 ## The Short Version
 
@@ -10,7 +10,7 @@
 
 ## Overview
 
-Arc-Inspired Workspaces ("the Extension") is a browser sidebar for organizing tabs. This privacy policy explains how the Extension handles your data.
+Tabwise ("the Extension") is a vertical tab manager sidebar for organizing tabs. This privacy policy explains how the Extension handles your data.
 
 ## Our Privacy Promise
 
@@ -95,9 +95,9 @@ You have full control over your data:
 
 ## Open Source Verification
 
-This extension is **100% open source**. Don't trust us — verify:
+Tabwise is **100% open source**. Don't trust us — verify:
 
-🔗 **Source Code:** https://github.com/SwajanJain/arc-style-workspaces
+🔗 **Source Code:** https://github.com/SwajanJain/tabwise
 
 You can read every line of code and confirm that:
 - No network requests are made to external servers
@@ -122,10 +122,10 @@ If we update this policy, changes will be posted here with an updated date. Majo
 
 Questions about privacy?
 
-- GitHub Issues: https://github.com/SwajanJain/arc-style-workspaces/issues
+- GitHub Issues: https://github.com/SwajanJain/tabwise/issues
 
 ## Summary
 
 **Your data is yours. It stays on your device. We never see it, touch it, or transmit it. Period.**
 
-By installing Arc-Inspired Workspaces, you agree to this privacy policy.
+By installing Tabwise, you agree to this privacy policy.
