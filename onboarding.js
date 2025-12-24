@@ -179,7 +179,7 @@ async function quickImportWithAI(profile) {
     // 4. Track favorite URLs to avoid duplicates in workspaces
     const favoriteUrls = new Set(aiFavorites.map(f => f.url));
 
-    // 5. Get bookmark folders (same as before - only those used in last 30 days)
+    // 5. Get bookmark folders (same as before - only those used in last 10 days)
     const bookmarkFolders = await extractBookmarkFolders(true);
 
     // 6. Track if we found Work/Personal folders
@@ -222,16 +222,8 @@ async function quickImportWithAI(profile) {
       });
     }
 
-    // 8. Create Work/Personal workspaces if not found
-    if (!hasWorkFolder) {
-      await Storage.addWorkspace('Work', '💼');
-      summary.workspaces.push({ name: 'Work', emoji: '💼', tabs: 0 });
-    }
-
-    if (!hasPersonalFolder) {
-      await Storage.addWorkspace('Personal', '🏠');
-      summary.workspaces.push({ name: 'Personal', emoji: '🏠', tabs: 0 });
-    }
+    // Note: We no longer create empty Work/Personal workspaces by default
+    // Only workspaces with actual content are created
 
     return { success: true, summary };
 
@@ -494,7 +486,7 @@ function cleanTitle(hostname) {
 
 /**
  * Extract bookmark folders and their bookmarks
- * @param {boolean} filterByRecency - If true, only include folders with bookmarks visited in last 30 days
+ * @param {boolean} filterByRecency - If true, only include folders with bookmarks visited in last 10 days
  */
 async function extractBookmarkFolders(filterByRecency = false) {
   console.log('[extractBookmarkFolders] Starting extraction, filterByRecency:', filterByRecency);
@@ -508,14 +500,14 @@ async function extractBookmarkFolders(filterByRecency = false) {
   // Get recent history if filtering by recency
   let recentUrls = new Set();
   if (filterByRecency) {
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
     const history = await chrome.history.search({
       text: '',
-      startTime: thirtyDaysAgo,
+      startTime: tenDaysAgo,
       maxResults: 10000
     });
     recentUrls = new Set(history.map(item => item.url));
-    console.log('[extractBookmarkFolders] Recent URLs (30 days):', recentUrls.size);
+    console.log('[extractBookmarkFolders] Recent URLs (10 days):', recentUrls.size);
   }
 
   function traverseBookmarks(nodes, depth = 0) {
@@ -610,7 +602,7 @@ async function quickImport() {
       favoritesToImport.map(s => s.bestUrl)
     );
 
-    // 2. Get bookmark folders (only those used in last 30 days during onboarding)
+    // 2. Get bookmark folders (only those used in last 10 days during onboarding)
     const bookmarkFolders = await extractBookmarkFolders(true);
 
     // 3. Track if we found Work/Personal folders
@@ -660,36 +652,19 @@ async function quickImport() {
       });
     }
 
-    // 5. Create Work workspace if not found in bookmarks
-    if (!hasWorkFolder) {
-      await Storage.addWorkspace('Work', '💼');
-      summary.workspaces.push({
-        name: 'Work',
-        emoji: '💼',
-        tabs: 0
-      });
-    }
+    // Note: We no longer create empty Work/Personal workspaces by default
+    // Only workspaces with actual content are created
 
-    // 6. Create Personal workspace if not found in bookmarks
-    if (!hasPersonalFolder) {
-      await Storage.addWorkspace('Personal', '🏠');
-      summary.workspaces.push({
-        name: 'Personal',
-        emoji: '🏠',
-        tabs: 0
-      });
-    }
-
-    // 7. Create Random workspace for loose bookmarks (not in folders, visited in last 30 days)
+    // 5. Create Random workspace for loose bookmarks (not in folders, visited in last 10 days)
     // Collect all loose bookmarks from the bookmark tree
     const looseBookmarks = [];
     const bookmarkTree = await chrome.bookmarks.getTree();
 
-    // Get recent history URLs (30 days) for filtering
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    // Get recent history URLs (10 days) for filtering
+    const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
     const recentHistory = await chrome.history.search({
       text: '',
-      startTime: thirtyDaysAgo,
+      startTime: tenDaysAgo,
       maxResults: 10000
     });
     const recentUrls = new Set(recentHistory.map(item => item.url));
@@ -714,9 +689,9 @@ async function quickImport() {
     collectLooseBookmarks(bookmarkTree);
     console.log(`[quickImport] Found ${looseBookmarks.length} loose bookmarks (not in folders)`);
 
-    // Filter to only those visited in last 30 days
+    // Filter to only those visited in last 10 days
     const recentLooseBookmarks = looseBookmarks.filter(bm => recentUrls.has(bm.url));
-    console.log(`[quickImport] ${recentLooseBookmarks.length} loose bookmarks visited in last 30 days`);
+    console.log(`[quickImport] ${recentLooseBookmarks.length} loose bookmarks visited in last 10 days`);
 
     // Create Random workspace if there are recent loose bookmarks
     if (recentLooseBookmarks.length > 0) {
@@ -958,9 +933,8 @@ function showOnboardingModal(onComplete) {
       await createGoogleWorkspace();
     }
 
-    // Create empty workspaces
-    await Storage.addWorkspace('Work', '💼');
-    await Storage.addWorkspace('Personal', '🏠');
+    // Note: We no longer create empty Work/Personal workspaces by default
+    // User can create them manually if needed
 
     // After creating workspaces, keep only Google Workspace expanded
     await collapseNonGoogleWorkspaces();
@@ -1301,7 +1275,7 @@ const COACH_STORAGE_KEY = 'postOnboardingCoach';
 const COACH_STEPS = {
   INTRO: 0,             // "This is your Smart Grid"
   CLEANUP_FAVORITES: 1, // Remove junk favorites
-  CLEANUP_WORKSPACES: 2,// Remove empty workspaces
+  CLEANUP_WORKSPACES: 2,// Clean up bloated workspaces (30+ items)
   SMART_SWITCH_1: 3,    // Click first (most used) favorite
   SMART_SWITCH_2: 4,    // Click second favorite
   SMART_SWITCH_3: 5,    // Click first again (the aha moment)
@@ -1321,10 +1295,9 @@ let coachFlowState = {
   secondFavoriteId: null,
   clickCount: 0,
   // Cleanup tracking
-  junkFavorites: [],      // Identified junk favorites
-  emptyWorkspaces: [],    // Identified empty workspaces
-  removedFavorites: 0,
-  removedWorkspaces: 0
+  junkFavorites: [],        // Identified junk favorites
+  bloatedWorkspaces: [],    // Identified bloated workspaces (30+ items)
+  removedFavorites: 0
 };
 
 /**
@@ -1430,24 +1403,20 @@ async function identifyJunkFavorites() {
 }
 
 /**
- * Identify problematic workspaces (empty or bloated)
+ * Identify bloated workspaces (30+ items)
+ * Note: We no longer check for empty workspaces since we don't create them
  */
-async function identifyProblematicWorkspaces() {
+async function identifyBloatedWorkspaces() {
   const state = await Storage.getState();
-  const problems = {
-    empty: [],
-    bloated: []
-  };
+  const bloated = [];
 
   for (const [id, workspace] of Object.entries(state.workspaces)) {
-    if (workspace.items.length === 0) {
-      problems.empty.push({ id, ...workspace });
-    } else if (workspace.items.length >= 15) {
-      problems.bloated.push({ id, ...workspace, itemCount: workspace.items.length });
+    if (workspace.items.length >= 30) {
+      bloated.push({ id, ...workspace, itemCount: workspace.items.length });
     }
   }
 
-  return problems;
+  return bloated;
 }
 
 /**
@@ -1694,48 +1663,56 @@ async function showStepCleanupFavorites(overlay, onNext, onSkip) {
 }
 
 /**
- * Step 2: CLEANUP_WORKSPACES - Remove empty workspaces
+ * Step 2: CLEANUP_WORKSPACES - Clean up bloated workspaces (30+ items)
  */
 async function showStepCleanupWorkspaces(overlay, onNext, onSkip) {
-  const problems = await identifyProblematicWorkspaces();
-  coachFlowState.emptyWorkspaces = problems.empty;
+  const bloatedWorkspaces = await identifyBloatedWorkspaces();
+  coachFlowState.bloatedWorkspaces = bloatedWorkspaces;
 
-  // If no empty workspaces, skip
-  if (problems.empty.length === 0) {
+  // If no bloated workspaces, skip this step entirely
+  if (bloatedWorkspaces.length === 0) {
     onNext();
     return;
   }
 
-  const firstEmpty = problems.empty[0];
-  highlightWorkspace(firstEmpty.id);
+  const firstBloated = bloatedWorkspaces[0];
+  highlightWorkspace(firstBloated.id);
 
-  const wsName = getWorkspaceName(firstEmpty);
-  const count = problems.empty.length;
+  const wsName = getWorkspaceName(firstBloated);
+  const itemCount = firstBloated.itemCount;
 
   overlay.innerHTML = `
     <div class="coach-card">
       ${renderProgressDots(1)}
       <div class="coach-content">
-        <div class="coach-title">Empty workspace${count > 1 ? 's' : ''}</div>
+        <div class="coach-title">Large workspace detected</div>
         <div class="coach-subtitle">
-          <strong>${wsName}</strong> is empty${count > 1 ? ` (and ${count - 1} more)` : ''}.<br>
-          Right-click → Delete to remove.
+          <strong>${wsName}</strong> has ${itemCount} items.<br>
+          Consider removing some items to keep it manageable.
         </div>
         <div class="coach-actions">
-          <button class="coach-btn-primary" id="coach-next">Done</button>
-          <button class="coach-btn-skip" id="coach-skip">Keep them</button>
+          <button class="coach-btn-primary" id="coach-cleanup">Clean up</button>
+          <button class="coach-btn-skip" id="coach-skip">I don't want to remove</button>
         </div>
       </div>
     </div>
   `;
 
-  document.getElementById('coach-next').addEventListener('click', () => {
+  document.getElementById('coach-cleanup').addEventListener('click', () => {
+    // Expand the workspace so user can see items
+    const wsEl = document.querySelector(`.workspace[data-id="${firstBloated.id}"]`);
+    if (wsEl) {
+      const itemsList = wsEl.querySelector('.workspace-items');
+      if (itemsList && itemsList.classList.contains('collapsed')) {
+        wsEl.querySelector('.workspace-header')?.click();
+      }
+    }
     clearCoachHighlights();
     onNext();
   });
   document.getElementById('coach-skip').addEventListener('click', () => {
     clearCoachHighlights();
-    onSkip();
+    onNext(); // Move to next step, not skip the entire flow
   });
 }
 
