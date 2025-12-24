@@ -133,6 +133,9 @@ function matchesUrlPrecise(tabUrl, targetUrl) {
 async function init() {
   state = await Storage.getState();
 
+  // Initialize favicon detection (calibrate generic globe size)
+  initFaviconDetection();
+
   // Ensure tabGrouping exists (for backwards compatibility)
   if (!state.tabGrouping) {
     state.tabGrouping = {
@@ -775,6 +778,14 @@ async function handleClickFavorite(fav, mode = null, event = null) {
   if (window.PostOnboardingCoach) {
     window.PostOnboardingCoach.onFavoriteClicked();
   }
+
+  // Check if this favorite has the generic globe favicon
+  // If so, mark it for refresh after the tab loads
+  isGenericFavicon(fav.url).then(isGeneric => {
+    if (isGeneric) {
+      markFaviconForRefresh(fav.id, fav.url);
+    }
+  });
 
   const openMode = mode || state.preferences.openBehavior;
 
@@ -1944,5 +1955,20 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // Refresh open tabs list if URL or title changed and feature is enabled
   if ((changeInfo.url || changeInfo.title) && state.preferences?.showOpenTabs) {
     await loadOpenTabs();
+  }
+
+  // Check for pending favicon refresh when tab finishes loading
+  // This handles the case where a favorite had the generic globe icon
+  // and we need to refresh it now that Chrome has cached the real favicon
+  if (changeInfo.status === 'complete' && tab.url) {
+    const pending = getPendingFaviconRefresh(tab.url);
+    if (pending) {
+      console.log('[Favicon] Tab loaded, refreshing favicon for:', pending.favoriteId);
+      // Small delay to ensure Chrome has cached the favicon
+      setTimeout(() => {
+        clearPendingFaviconRefresh(pending.favoriteId);
+        renderFavorites();
+      }, 500);
+    }
   }
 });

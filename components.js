@@ -1,9 +1,8 @@
 // UI Components and Helpers
 
-// Favicon helpers
+// Favicon helper - uses Chrome's cached favicons
 function getFaviconUrl(url) {
   try {
-    const urlObj = new URL(url);
     return `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`;
   } catch {
     return null;
@@ -19,19 +18,129 @@ function getDomainInitial(url) {
   }
 }
 
-// Create favicon element with fallback
+// ========================================
+// GENERIC FAVICON (GLOBE) DETECTION
+// ========================================
+
+// Cache for generic favicon detection
+let genericFaviconSize = null;
+let calibrationPromise = null;
+
+// Track favorites that need favicon refresh after tab loads
+const pendingFaviconRefresh = new Set();
+
+/**
+ * Calibrate the generic globe favicon size (runs once)
+ * Chrome returns a gray globe icon for sites without cached favicons.
+ * We detect this by fetching a known non-existent URL and storing its blob size.
+ */
+async function calibrateGenericFavicon() {
+  if (calibrationPromise) return calibrationPromise;
+
+  calibrationPromise = (async () => {
+    try {
+      const dummyUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent('https://no-favicon.invalid/')}&size=32`;
+      const response = await fetch(dummyUrl);
+      const blob = await response.blob();
+      genericFaviconSize = blob.size;
+      console.log('[Favicon] Calibrated generic globe size:', genericFaviconSize);
+    } catch (e) {
+      console.error('[Favicon] Calibration failed:', e);
+      genericFaviconSize = -1; // Mark as failed
+    }
+  })();
+
+  return calibrationPromise;
+}
+
+/**
+ * Check if a favicon URL returns the generic globe icon
+ * @param {string} url - The site URL to check
+ * @returns {Promise<boolean>} - True if it's the generic globe
+ */
+async function isGenericFavicon(url) {
+  if (genericFaviconSize === null) {
+    await calibrateGenericFavicon();
+  }
+
+  // Calibration failed, can't detect
+  if (genericFaviconSize === -1) return false;
+
+  try {
+    const faviconUrl = getFaviconUrl(url);
+    const response = await fetch(faviconUrl);
+    const blob = await response.blob();
+    return blob.size === genericFaviconSize;
+  } catch {
+    return true; // Fetch failed, treat as generic
+  }
+}
+
+/**
+ * Mark a favorite for favicon refresh after its tab loads
+ * @param {string} favoriteId - The favorite ID
+ * @param {string} url - The favorite URL (to match with tab)
+ */
+function markFaviconForRefresh(favoriteId, url) {
+  pendingFaviconRefresh.add(JSON.stringify({ favoriteId, url }));
+  console.log('[Favicon] Marked for refresh:', favoriteId);
+}
+
+/**
+ * Check if a URL has a pending favicon refresh
+ * @param {string} url - The URL to check
+ * @returns {Object|null} - The pending item or null
+ */
+function getPendingFaviconRefresh(url) {
+  for (const item of pendingFaviconRefresh) {
+    const parsed = JSON.parse(item);
+    try {
+      // Match by hostname to handle URL variations
+      const pendingHost = new URL(parsed.url).hostname;
+      const checkHost = new URL(url).hostname;
+      if (pendingHost === checkHost) {
+        return parsed;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Remove a favorite from pending refresh
+ * @param {string} favoriteId - The favorite ID to remove
+ */
+function clearPendingFaviconRefresh(favoriteId) {
+  for (const item of pendingFaviconRefresh) {
+    const parsed = JSON.parse(item);
+    if (parsed.favoriteId === favoriteId) {
+      pendingFaviconRefresh.delete(item);
+      console.log('[Favicon] Cleared pending refresh:', favoriteId);
+      break;
+    }
+  }
+}
+
+/**
+ * Initialize favicon detection (call on extension load)
+ */
+function initFaviconDetection() {
+  calibrateGenericFavicon();
+}
+
+// Create favicon element
 function createFaviconElement(url, size = 20, customIcon = null) {
   const container = document.createElement('div');
   container.className = 'workspace-item-icon';
 
-  // Use custom icon if provided, otherwise use Chrome's favicon API
   const faviconUrl = customIcon || getFaviconUrl(url);
 
   if (faviconUrl) {
     const img = document.createElement('img');
     img.src = faviconUrl;
     img.onerror = () => {
-      // Fallback to initial
       container.innerHTML = `<div class="fallback-icon">${getDomainInitial(url)}</div>`;
     };
     container.appendChild(img);
@@ -78,16 +187,13 @@ class FavoritesGrid {
 
       const faviconUrl = getFaviconUrl(fav.url);
 
-      if (faviconUrl) {
-        const img = document.createElement('img');
-        img.src = faviconUrl;
-        img.onerror = () => {
-          item.innerHTML = `<div class="fallback-icon">${getDomainInitial(fav.url)}</div>`;
-        };
-        item.appendChild(img);
-      } else {
+      const img = document.createElement('img');
+      img.src = faviconUrl;
+      img.onerror = () => {
         item.innerHTML = `<div class="fallback-icon">${getDomainInitial(fav.url)}</div>`;
-      }
+      };
+
+      item.appendChild(img);
 
       // Add close button
       const closeBtn = document.createElement('div');

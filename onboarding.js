@@ -1,6 +1,252 @@
 // Onboarding System
 // Handles first-launch experience and quick import
 
+// ========================================
+// AI-POWERED FAVORITES SELECTION
+// ========================================
+
+// Cloudflare Worker URL for AI-powered favorites selection
+const AI_WORKER_URL = 'https://tabwise-ai.swajan1008.workers.dev';
+
+// Profile options for the dropdown
+const PROFILE_OPTIONS = [
+  { value: 'developer', label: 'Developer' },
+  { value: 'designer', label: 'Designer' },
+  { value: 'product-manager', label: 'Product Manager' },
+  { value: 'marketer', label: 'Marketer' },
+  { value: 'researcher', label: 'Researcher' },
+  { value: 'founder', label: 'Founder' },
+  { value: 'other', label: 'Other' }
+];
+
+/**
+ * Get ALL history from last 14 days, grouped by domain with top 5 URLs per domain
+ * No 2000 cap - gets everything
+ */
+async function getHistoryForAI(days = 14) {
+  const startTime = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+  // Get history in chunks to bypass the 2000 limit
+  let allHistory = [];
+  let lastEndTime = Date.now();
+  let hasMore = true;
+
+  while (hasMore) {
+    const chunk = await chrome.history.search({
+      text: '',
+      startTime: startTime,
+      endTime: lastEndTime,
+      maxResults: 2000
+    });
+
+    if (chunk.length === 0) {
+      hasMore = false;
+    } else {
+      allHistory = allHistory.concat(chunk);
+      // Get the oldest item's time for next iteration
+      const oldestTime = Math.min(...chunk.map(h => h.lastVisitTime));
+      if (oldestTime <= startTime || chunk.length < 2000) {
+        hasMore = false;
+      } else {
+        lastEndTime = oldestTime - 1;
+      }
+    }
+
+    // Safety limit to prevent infinite loops
+    if (allHistory.length > 20000) {
+      hasMore = false;
+    }
+  }
+
+  console.log(`[AI Onboarding] Fetched ${allHistory.length} history entries`);
+
+  // Group by domain with filtering
+  const domainData = {};
+
+  allHistory.forEach(item => {
+    try {
+      const url = new URL(item.url);
+      const hostname = url.hostname;
+
+      // Skip noise
+      if (hostname.startsWith('chrome://') ||
+          hostname.startsWith('edge://') ||
+          hostname.includes('localhost') ||
+          hostname.includes('127.0.0.1') ||
+          hostname === '' ||
+          isNoiseDomain(hostname) ||
+          isLoginOrAuthUrl(item.url)) {
+        return;
+      }
+
+      if (!domainData[hostname]) {
+        domainData[hostname] = {
+          totalVisits: 0,
+          urls: {} // url -> visit count
+        };
+      }
+
+      // Use actual visitCount from Chrome history API
+      const visits = item.visitCount || 1;
+      domainData[hostname].totalVisits += visits;
+
+      // Track individual URLs with their visit counts
+      const fullUrl = `${url.origin}${url.pathname}`;
+      domainData[hostname].urls[fullUrl] = (domainData[hostname].urls[fullUrl] || 0) + visits;
+    } catch (err) {
+      // Skip invalid URLs
+    }
+  });
+
+  // Convert to format for AI: top 5 URLs per domain
+  const result = {};
+
+  for (const [hostname, data] of Object.entries(domainData)) {
+    // Sort URLs by visit count and take top 5
+    const topUrls = Object.entries(data.urls)
+      .map(([url, visits]) => ({ url, visits }))
+      .sort((a, b) => b.visits - a.visits)
+      .slice(0, 5);
+
+    result[hostname] = {
+      totalVisits: data.totalVisits,
+      topUrls: topUrls
+    };
+  }
+
+  console.log(`[AI Onboarding] Grouped into ${Object.keys(result).length} domains`);
+  return result;
+}
+
+/**
+ * Call the AI worker to analyze history and get smart favorites
+ */
+async function analyzeWithAI(historyData, profile) {
+  console.log('[AI Onboarding] Calling AI worker with profile:', profile);
+
+  const response = await fetch(AI_WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      history: historyData,
+      profile: profile
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`AI worker failed: ${error}`);
+  }
+
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  console.log('[AI Onboarding] AI returned', data.favorites?.length, 'favorites');
+  return data.favorites || [];
+}
+
+/**
+ * AI-powered quick import
+ * Uses AI to analyze history and select the best favorites
+ */
+async function quickImportWithAI(profile) {
+  try {
+    console.log('[AI Onboarding] Starting AI-powered import with profile:', profile);
+
+    const summary = {
+      favorites: 0,
+      workspaces: []
+    };
+
+    // 1. Get history data formatted for AI
+    const historyData = await getHistoryForAI(14);
+
+    // 2. Call AI to get smart favorites
+    const aiFavorites = await analyzeWithAI(historyData, profile);
+
+    // 3. Add AI-selected favorites
+    for (const fav of aiFavorites) {
+      await Storage.addFavorite({
+        url: fav.url,
+        title: fav.title
+      });
+    }
+    summary.favorites = aiFavorites.length;
+
+    // 4. Track favorite URLs to avoid duplicates in workspaces
+    const favoriteUrls = new Set(aiFavorites.map(f => f.url));
+
+    // 5. Get bookmark folders (same as before - only those used in last 30 days)
+    const bookmarkFolders = await extractBookmarkFolders(true);
+
+    // 6. Track if we found Work/Personal folders
+    let hasWorkFolder = false;
+    let hasPersonalFolder = false;
+    const workspaceUrls = new Set();
+
+    // 7. Create workspaces from bookmark folders
+    for (const folder of bookmarkFolders) {
+      const lowerName = folder.name.toLowerCase();
+
+      if (/\bwork\b/.test(lowerName)) hasWorkFolder = true;
+      if (/\b(personal|home)\b/.test(lowerName)) hasPersonalFolder = true;
+
+      const emoji = guessEmojiForFolder(folder.name);
+      const workspace = await Storage.addWorkspace(folder.name, emoji);
+
+      let addedCount = 0;
+
+      for (const bookmark of folder.bookmarks) {
+        try {
+          if (!favoriteUrls.has(bookmark.url)) {
+            const hostname = new URL(bookmark.url).hostname;
+            await Storage.addWorkspaceItem(workspace.id, {
+              url: bookmark.url,
+              title: bookmark.title || cleanTitle(hostname)
+            });
+            workspaceUrls.add(bookmark.url);
+            addedCount++;
+          }
+        } catch (err) {
+          // Skip invalid URLs
+        }
+      }
+
+      summary.workspaces.push({
+        name: folder.name,
+        emoji: emoji,
+        tabs: addedCount
+      });
+    }
+
+    // 8. Create Work/Personal workspaces if not found
+    if (!hasWorkFolder) {
+      await Storage.addWorkspace('Work', '💼');
+      summary.workspaces.push({ name: 'Work', emoji: '💼', tabs: 0 });
+    }
+
+    if (!hasPersonalFolder) {
+      await Storage.addWorkspace('Personal', '🏠');
+      summary.workspaces.push({ name: 'Personal', emoji: '🏠', tabs: 0 });
+    }
+
+    return { success: true, summary };
+
+  } catch (error) {
+    console.error('[AI Onboarding] AI import failed:', error);
+    // Fallback to regular import
+    console.log('[AI Onboarding] Falling back to local algorithm');
+    return await quickImport();
+  }
+}
+
+// ========================================
+// ORIGINAL HELPER FUNCTIONS
+// ========================================
+
 /**
  * Detect if a URL looks like a specific file/item (vs. a dashboard)
  */
@@ -592,6 +838,11 @@ function isFirstLaunch(state) {
  * Show onboarding welcome modal
  */
 function showOnboardingModal(onComplete) {
+  // Build profile options HTML
+  const profileOptionsHtml = PROFILE_OPTIONS
+    .map(opt => `<option value="${opt.value}">${opt.label}</option>`)
+    .join('');
+
   showModal('', `
     <div class="onboarding-welcome">
       <div class="onboarding-pain-visual">
@@ -604,6 +855,21 @@ function showOnboardingModal(onComplete) {
       <p class="onboarding-description">
         We'll organize them.
       </p>
+
+      <div class="onboarding-profile-section">
+        <label class="onboarding-profile-label">What do you do?</label>
+        <div class="onboarding-profile-selects">
+          <select id="profile-select-1" class="onboarding-profile-select">
+            <option value="">Select role...</option>
+            ${profileOptionsHtml}
+          </select>
+          <select id="profile-select-2" class="onboarding-profile-select">
+            <option value="">+ Add another (optional)</option>
+            ${profileOptionsHtml}
+          </select>
+        </div>
+        <input type="text" id="profile-other-input" class="onboarding-other-input" placeholder="Type your role..." style="display: none;" />
+      </div>
 
       <div class="onboarding-cta">
         <button class="btn btn-primary btn-large" id="quick-import-btn">
@@ -624,12 +890,39 @@ function showOnboardingModal(onComplete) {
     </div>
   `);
 
+  // Show/hide "Other" input when "other" is selected
+  const otherInput = document.getElementById('profile-other-input');
+  const select1 = document.getElementById('profile-select-1');
+  const select2 = document.getElementById('profile-select-2');
+
+  function updateOtherInputVisibility() {
+    const showOther = select1.value === 'other' || select2.value === 'other';
+    otherInput.style.display = showOther ? 'block' : 'none';
+    if (showOther) {
+      otherInput.focus();
+    }
+  }
+
+  select1.addEventListener('change', updateOtherInputVisibility);
+  select2.addEventListener('change', updateOtherInputVisibility);
+
   // Quick import handler
   document.getElementById('quick-import-btn').addEventListener('click', async () => {
+    // Get selected profiles
+    let profile1 = document.getElementById('profile-select-1').value;
+    let profile2 = document.getElementById('profile-select-2').value;
+    const otherText = document.getElementById('profile-other-input').value.trim();
+
+    // Replace "other" with the custom text
+    if (profile1 === 'other' && otherText) profile1 = otherText;
+    if (profile2 === 'other' && otherText) profile2 = otherText;
+
+    const selectedProfiles = [profile1, profile2].filter(p => p && p !== '' && p !== 'other');
+
     // Show loading state
     const btn = document.getElementById('quick-import-btn');
     btn.disabled = true;
-    btn.innerHTML = '<span>⚡ Setting up...</span>';
+    btn.innerHTML = '<span>Analyzing your browsing...</span>';
 
     // Check if Google Workspace should be added
     const shouldAddGoogleWorkspace = document.getElementById('add-google-workspace-checkbox').checked;
@@ -639,8 +932,8 @@ function showOnboardingModal(onComplete) {
       await createGoogleWorkspace();
     }
 
-    // Run import (creates workspaces after Google Workspace)
-    const result = await quickImport();
+    // Run AI-powered import with selected profiles
+    const result = await quickImportWithAI(selectedProfiles);
 
     if (result.success) {
       // After creating workspaces, keep only Google Workspace expanded
@@ -651,7 +944,7 @@ function showOnboardingModal(onComplete) {
     } else {
       alert('Import failed. Please try again or start empty.');
       btn.disabled = false;
-      btn.innerHTML = '<span>🚀 Quick Setup (Recommended)</span><span class="btn-subtitle">Use your real history to auto-build workspaces</span>';
+      btn.innerHTML = 'Set up from my browsing history';
     }
   });
 
@@ -1091,55 +1384,8 @@ async function checkExistingTabChaos() {
   return { hasDuplicates, hasManyTabs, tabCount: tabs.length };
 }
 
-// Generic favicon detection using blob size comparison
-let genericFaviconSize = null;
-
-/**
- * Calibrate by fetching a known non-existent URL to get the generic globe size.
- * Uses .invalid TLD which is reserved and guaranteed to have no favicon.
- */
-async function calibrateGenericFavicon() {
-  const dummyUrl = chrome.runtime.getURL(
-    `/_favicon/?pageUrl=${encodeURIComponent('https://no-favicon.invalid/')}&size=32`
-  );
-  try {
-    const response = await fetch(dummyUrl);
-    const blob = await response.blob();
-    genericFaviconSize = blob.size;
-    console.log('[Favicon] Calibrated generic globe size:', genericFaviconSize);
-  } catch (e) {
-    console.error('[Favicon] Calibration failed:', e);
-  }
-}
-
-/**
- * Check if a URL has the generic gray globe favicon
- * @param {string} siteUrl - The URL to check
- * @returns {Promise<boolean>} - True if favicon is the generic globe
- */
-async function hasGenericFavicon(siteUrl) {
-  if (genericFaviconSize === null) {
-    await calibrateGenericFavicon();
-  }
-
-  // If calibration failed, can't detect
-  if (genericFaviconSize === null) {
-    return false;
-  }
-
-  const faviconUrl = chrome.runtime.getURL(
-    `/_favicon/?pageUrl=${encodeURIComponent(siteUrl)}&size=32`
-  );
-
-  try {
-    const response = await fetch(faviconUrl);
-    const blob = await response.blob();
-    return blob.size === genericFaviconSize;
-  } catch (e) {
-    console.warn('[Favicon] Failed to check:', siteUrl, e);
-    return false;
-  }
-}
+// Generic favicon detection is now in components.js
+// Uses: isGenericFavicon(url), calibrateGenericFavicon(), initFaviconDetection()
 
 /**
  * Identify favorites to suggest for cleanup
@@ -1152,13 +1398,14 @@ async function identifyJunkFavorites() {
     return [];
   }
 
-  // Calibrate once at the start
+  // Calibrate once at the start (uses function from components.js)
   await calibrateGenericFavicon();
 
   // Check for favorites with generic globe favicon
   const genericFaviconFavorites = [];
   for (const fav of state.favorites) {
-    if (await hasGenericFavicon(fav.url)) {
+    // Use isGenericFavicon from components.js
+    if (await isGenericFavicon(fav.url)) {
       genericFaviconFavorites.push({
         ...fav,
         reason: 'no-favicon'

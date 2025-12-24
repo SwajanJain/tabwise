@@ -86,22 +86,20 @@ async function initializeServices() {
   console.log(`[SmartSwitcher] Initialized with ${tabs.length} tabs`);
 }
 
-// Toggle side panel on action click
+// Toggle side panel on action click (also triggered by _execute_action keyboard shortcut)
 chrome.action.onClicked.addListener((tab) => {
-  chrome.sidePanel.open({ windowId: tab.windowId });
+  if (sidePanelPort) {
+    // Panel is open, send close message
+    sidePanelPort.postMessage({ type: 'close-panel' });
+  } else {
+    // Panel is closed, open it
+    chrome.sidePanel.open({ windowId: tab.windowId });
+  }
 });
 
-// Handle keyboard commands (no async/await before sidePanel.open to preserve user gesture)
-chrome.commands.onCommand.addListener((command) => {
-  if (command === 'toggle-panel' && activeTabId) {
-    if (sidePanelPort) {
-      // Panel is open, send close message
-      sidePanelPort.postMessage({ type: 'close-panel' });
-    } else {
-      // Panel is closed, open it
-      chrome.sidePanel.open({ tabId: activeTabId });
-    }
-  }
+// Handle keyboard commands
+// Note: _execute_action (Cmd+Shift+E) automatically triggers action.onClicked above
+chrome.commands.onCommand.addListener(async (command) => {
   // 'quick-open' command is handled in sidepanel.js
 });
 

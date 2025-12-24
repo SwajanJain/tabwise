@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Tabwise — Vertical Tab Manager",
-  "version": "2.0.0",
-  "description": "Vertical tabs sidebar with workspaces, smart tab switching, and favorites for Chrome, Brave, Edge, and AI browsers.",
+  "name": "Tabwise: Vertical Tabs & Workspaces",
+  "version": "2.0.1",
+  "description": "Arc-style vertical tabs for Chrome. Smart switching, workspaces, immersive mode. No duplicate tabs. Privacy-first.",
   "homepage_url": "https://github.com/SwajanJain/tabwise",
   "permissions": [
     "sidePanel",
@@ -31,7 +31,7 @@
     "default_title": "Toggle Workspaces Panel"
   },
   "commands": {
-    "toggle-panel": {
+    "_execute_action": {
       "suggested_key": {
         "default": "Ctrl+Shift+E",
         "mac": "Command+Shift+E"

@@ -1,10 +1,10 @@
-# Privacy Policy for Tabwise — Vertical Tab Manager
+# Privacy Policy for Tabwise: Vertical Tabs & Workspaces
 
-**Last Updated:** December 13, 2024
+**Last Updated:** December 23, 2025
 
 ## The Short Version
 
-**We do NOT collect, store, or transmit ANY of your data to any server.** Everything stays 100% on your device. We have no servers, no analytics, no tracking. Zero.
+**Your data stays on your device** — with one optional exception: if you choose AI-powered setup during onboarding, your browsing patterns are temporarily sent to OpenAI to generate personalized favorites. This is opt-in, one-time, and no data is stored on our servers.
 
 ---
 
@@ -14,10 +14,10 @@ Tabwise ("the Extension") is a vertical tab manager sidebar for organizing tabs.
 
 ## Our Privacy Promise
 
-- ✅ **100% Local** — All data is stored on your device only
-- ✅ **Zero Servers** — We do not operate any servers
+- ✅ **Local First** — All your data (favorites, workspaces, settings) is stored on your device only
+- ✅ **AI is Opt-in** — AI-powered setup is optional and only runs once during onboarding
 - ✅ **Zero Tracking** — No analytics, no telemetry, no tracking pixels
-- ✅ **Zero Data Collection** — We never see, collect, or access your data
+- ✅ **Zero Data Storage** — We do not store your data on any server
 - ✅ **Open Source** — Verify everything by reading our code
 
 ## What Data is Stored (Locally Only)
@@ -36,23 +36,47 @@ The Extension stores the following data **on your device only** using Chrome's s
 
 ## What Data We Access Temporarily
 
-Some features require temporary access to browser data. This data is **processed locally and immediately discarded** — never stored or transmitted:
+Some features require temporary access to browser data:
 
 | Feature | Data Accessed | What Happens |
 |---------|---------------|--------------|
-| One-Click Setup | Browsing history | Analyzed locally to suggest favorites. Never stored or sent anywhere. |
+| AI-Powered Setup (Opt-in) | Browsing history (domains & paths) | Sent to OpenAI via our proxy to generate personalized favorites. See "AI-Powered Setup" section below. |
 | Bookmark Import | Bookmark folders | Read locally to create workspaces. Never stored or sent anywhere. |
 | Screenshot Capture | Visible page content | Captured and saved to your clipboard or downloads. Never sent anywhere. |
 
+## AI-Powered Setup
+
+During onboarding, you can optionally choose "AI-Powered Setup" to automatically generate favorites based on your browsing patterns.
+
+**What happens:**
+1. Your recent browsing history (domains and URL paths) is collected locally
+2. This data is sent to our Cloudflare Worker, which forwards it to OpenAI's API
+3. OpenAI analyzes the patterns and returns suggested favorites
+4. The data is immediately discarded — nothing is stored on our servers or OpenAI
+
+**What is sent:**
+- Domain names (e.g., `mail.google.com`, `github.com`)
+- URL paths (e.g., `/inbox`, `/dashboard`) — to understand which pages you use most
+- Your selected profile type (e.g., "Developer", "Designer")
+
+**What is NOT sent:**
+- Full URLs with query parameters or sensitive IDs
+- Page content or titles
+- Cookies, passwords, or personal information
+
+**Your choice:**
+- This feature is **opt-in** — you must explicitly choose it during onboarding
+- You can skip it and set up favorites manually instead
+- It runs only **once** during initial setup, never again
+
 ## What We Do NOT Do
 
-- ❌ We do **NOT** send any data to any server
-- ❌ We do **NOT** have servers to receive data
+- ❌ We do **NOT** store your data on any server
 - ❌ We do **NOT** collect personal information
-- ❌ We do **NOT** track your browsing activity
+- ❌ We do **NOT** track your browsing activity (AI setup is one-time, opt-in only)
 - ❌ We do **NOT** use analytics services (Google Analytics, Mixpanel, etc.)
 - ❌ We do **NOT** use tracking pixels or cookies
-- ❌ We do **NOT** sell or share data (we don't have any to sell)
+- ❌ We do **NOT** sell or share data
 - ❌ We do **NOT** monetize your data in any way
 
 ## Permissions Explained
@@ -100,19 +124,26 @@ Tabwise is **100% open source**. Don't trust us — verify:
 🔗 **Source Code:** https://github.com/SwajanJain/tabwise
 
 You can read every line of code and confirm that:
-- No network requests are made to external servers
-- No data is collected or transmitted
-- All functionality runs locally in your browser
+- Network requests only occur during opt-in AI setup
+- No data is permanently stored or collected
+- All regular functionality runs locally in your browser
 
 ## Third Parties
 
-We use **zero** third-party services:
-- No analytics (Google Analytics, Mixpanel, Amplitude, etc.)
-- No crash reporting (Sentry, Bugsnag, etc.)
-- No advertising
-- No external APIs
+We use minimal third-party services:
 
-The only external communication is Chrome Sync (if you have it enabled), which is handled by Google, not us.
+| Service | Purpose | When Used |
+|---------|---------|-----------|
+| OpenAI API | AI-powered favorite suggestions | Only during opt-in onboarding setup |
+| Cloudflare Workers | Secure proxy for AI requests | Only during opt-in onboarding setup |
+
+**We do NOT use:**
+- Analytics (Google Analytics, Mixpanel, Amplitude, etc.)
+- Crash reporting (Sentry, Bugsnag, etc.)
+- Advertising networks
+- User tracking services
+
+The only other external communication is Chrome Sync (if you have it enabled), which is handled by Google, not us.
 
 ## Changes to This Policy
 
@@ -126,6 +157,6 @@ Questions about privacy?
 
 ## Summary
 
-**Your data is yours. It stays on your device. We never see it, touch it, or transmit it. Period.**
+**Your data is yours.** It stays on your device — except during optional AI-powered setup, which temporarily sends browsing patterns to generate personalized favorites. This is opt-in, one-time, and nothing is stored.
 
 By installing Tabwise, you agree to this privacy policy.

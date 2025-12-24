@@ -1,4 +1,4 @@
-# Tabwise — Vertical Tab Manager
+# Tabwise: Vertical Tabs & Workspaces
 
 > **Bring vertical tabs to Chrome, Brave, Edge, Comet, Dia and Atlas** — Workspaces, smart tab switching, and favorites. Finally organize your tabs the way they were meant to be.
 
