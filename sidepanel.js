@@ -739,22 +739,53 @@ async function handleClearAllTabs() {
 
 // Favorites handlers
 async function handleAddFavorite() {
+  // Check if coach has a suggested favorite to pre-fill
+  let prefillUrl = '';
+  let prefillTitle = '';
+  const coachSuggestion = window.coachFlowState?.suggestedFavorite;
+  if (coachSuggestion) {
+    prefillUrl = coachSuggestion.url || '';
+    prefillTitle = coachSuggestion.title || '';
+  }
+
   showModal('Add Favorite', `
     <form class="modal-form" id="add-fav-form">
       <div class="form-group">
         <label class="form-label">URL</label>
-        <input type="url" class="form-input" id="fav-url" required placeholder="https://example.com" />
+        <input type="url" class="form-input" id="fav-url" required placeholder="https://example.com" value="${prefillUrl}" />
       </div>
       <div class="form-group">
         <label class="form-label">Title (optional)</label>
-        <input type="text" class="form-input" id="fav-title" placeholder="My favorite site" />
+        <input type="text" class="form-input" id="fav-title" placeholder="My favorite site" value="${prefillTitle}" />
       </div>
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" id="cancel-add-fav">Cancel</button>
-        <button type="submit" class="btn btn-primary">Add</button>
+        <button type="submit" class="btn btn-primary" id="add-fav-btn">Add</button>
       </div>
     </form>
   `);
+
+  // If coach is active, highlight the inputs and Add button
+  if (coachSuggestion) {
+    // Clear + button highlight
+    const addBtn = document.querySelector('.fav-add-btn');
+    if (addBtn) addBtn.classList.remove('coach-target');
+
+    // Highlight inputs briefly, then highlight Add button
+    const urlInput = document.getElementById('fav-url');
+    const titleInput = document.getElementById('fav-title');
+    const addFavBtn = document.getElementById('add-fav-btn');
+
+    if (urlInput) urlInput.classList.add('coach-target');
+    if (titleInput) titleInput.classList.add('coach-target');
+
+    // After a short delay, highlight the Add button
+    setTimeout(() => {
+      if (urlInput) urlInput.classList.remove('coach-target');
+      if (titleInput) titleInput.classList.remove('coach-target');
+      if (addFavBtn) addFavBtn.classList.add('coach-target');
+    }, 1500);
+  }
 
   document.getElementById('cancel-add-fav').addEventListener('click', hideModal);
   document.getElementById('add-fav-form').addEventListener('submit', async (e) => {
@@ -762,9 +793,17 @@ async function handleAddFavorite() {
     const url = document.getElementById('fav-url').value;
     const title = document.getElementById('fav-title').value;
 
-    state = await Storage.addFavorite({ url, title });
+    const newFavorite = await Storage.addFavorite({ url, title });
+    state = await Storage.getState();
     renderFavorites();
     hideModal();
+
+    // Notify coach that favorite was added (for ADD_FAVORITE step)
+    if (window.PostOnboardingCoach && coachSuggestion) {
+      window.PostOnboardingCoach.onFavoriteAdded(newFavorite?.id);
+      // Clear the suggestion from storage
+      chrome.storage.local.remove(['suggestedFavoriteToAdd']);
+    }
   });
 }
 
@@ -883,6 +922,11 @@ async function handleAddWorkspace() {
 async function handleToggleWorkspaceCollapse(id) {
   state = await Storage.toggleWorkspaceCollapsed(id);
   renderWorkspaces();
+
+  // Notify post-onboarding coach of workspace toggle
+  if (window.PostOnboardingCoach) {
+    window.PostOnboardingCoach.onWorkspaceToggled(id);
+  }
 }
 
 async function handleRenameWorkspace(id) {

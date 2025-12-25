@@ -23,16 +23,16 @@ function getDomainInitial(url) {
 // ========================================
 
 // Cache for generic favicon detection
-let genericFaviconSize = null;
+let genericFaviconData = null; // ArrayBuffer of generic globe
 let calibrationPromise = null;
 
 // Track favorites that need favicon refresh after tab loads
 const pendingFaviconRefresh = new Set();
 
 /**
- * Calibrate the generic globe favicon size (runs once)
+ * Calibrate the generic globe favicon (runs once)
  * Chrome returns a gray globe icon for sites without cached favicons.
- * We detect this by fetching a known non-existent URL and storing its blob size.
+ * We detect this by fetching a known non-existent URL and storing its data.
  */
 async function calibrateGenericFavicon() {
   if (calibrationPromise) return calibrationPromise;
@@ -42,15 +42,28 @@ async function calibrateGenericFavicon() {
       const dummyUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent('https://no-favicon.invalid/')}&size=32`;
       const response = await fetch(dummyUrl);
       const blob = await response.blob();
-      genericFaviconSize = blob.size;
-      console.log('[Favicon] Calibrated generic globe size:', genericFaviconSize);
+      genericFaviconData = await blob.arrayBuffer();
+      console.log('[Favicon] Calibrated generic globe, size:', genericFaviconData.byteLength);
     } catch (e) {
       console.error('[Favicon] Calibration failed:', e);
-      genericFaviconSize = -1; // Mark as failed
+      genericFaviconData = null;
     }
   })();
 
   return calibrationPromise;
+}
+
+/**
+ * Compare two ArrayBuffers for equality
+ */
+function arrayBuffersEqual(buf1, buf2) {
+  if (buf1.byteLength !== buf2.byteLength) return false;
+  const view1 = new Uint8Array(buf1);
+  const view2 = new Uint8Array(buf2);
+  for (let i = 0; i < view1.length; i++) {
+    if (view1[i] !== view2[i]) return false;
+  }
+  return true;
 }
 
 /**
@@ -59,18 +72,21 @@ async function calibrateGenericFavicon() {
  * @returns {Promise<boolean>} - True if it's the generic globe
  */
 async function isGenericFavicon(url) {
-  if (genericFaviconSize === null) {
+  if (genericFaviconData === null) {
     await calibrateGenericFavicon();
   }
 
   // Calibration failed, can't detect
-  if (genericFaviconSize === -1) return false;
+  if (genericFaviconData === null) return false;
 
   try {
     const faviconUrl = getFaviconUrl(url);
     const response = await fetch(faviconUrl);
     const blob = await response.blob();
-    return blob.size === genericFaviconSize;
+    const data = await blob.arrayBuffer();
+
+    // Compare actual data, not just size
+    return arrayBuffersEqual(data, genericFaviconData);
   } catch {
     return true; // Fetch failed, treat as generic
   }

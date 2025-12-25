@@ -2596,6 +2596,53 @@ body {
   }
 }
 
+/* Add button highlight during coach */
+.fav-add-btn.coach-target {
+  position: relative;
+  z-index: 1000;
+}
+
+.fav-add-btn.coach-target::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--accent-color);
+  border-radius: 10px;
+  pointer-events: none;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+}
+
+.fav-add-btn.coach-target::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  background: var(--accent-color);
+  opacity: 0.15;
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* Modal input highlight during coach */
+.form-input.coach-target {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Modal button highlight during coach */
+.btn.coach-target {
+  position: relative;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+}
+
+.btn.coach-target::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 2px solid var(--accent-color);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
 /* Workspace highlight during coach */
 .workspace.coach-target {
   position: relative;
@@ -2648,6 +2695,56 @@ body {
   border: 2px solid var(--accent-color);
   border-radius: 8px;
   animation: coachTargetPulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Workspaces section highlight during coach */
+.workspaces-section.coach-highlight {
+  position: relative;
+}
+
+.workspaces-section.coach-highlight::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border: 2px solid var(--accent-color);
+  border-radius: 12px;
+  animation: coachHighlightPulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.workspaces-section.coach-highlight::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* Add workspace button highlight during coach */
+#add-workspace-btn.coach-target {
+  position: relative;
+  z-index: 1000;
+}
+
+#add-workspace-btn.coach-target::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--accent-color);
+  border-radius: 8px;
+  pointer-events: none;
+  animation: coachTargetPulse 1.2s ease-in-out infinite;
+}
+
+#add-workspace-btn.coach-target::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  background: var(--accent-color);
+  opacity: 0.15;
+  border-radius: 12px;
   pointer-events: none;
 }
 

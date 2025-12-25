@@ -103,7 +103,9 @@ export default {
 Your goal: Help users set up their "Quick Access Grid" - the 10-15 sites they'd put on their phone's home screen. These are one-click shortcuts, not bookmarks.
 
 Process: First infer the user's workflow, then select favorites that represent it.
-Output: Return ONLY valid JSON object with "workflow" and "favorites" keys. No explanation, no markdown.`
+Output: Return ONLY valid JSON object with "workflow", "favorites", and "suggestedAdd" keys. No explanation, no markdown.
+
+IMPORTANT: You must also include ONE "suggestedAdd" - a site the user visits often but didn't make the top 15. This will be used to teach them how to add favorites themselves.`
             },
             { role: 'user', content: prompt }
           ],
@@ -128,15 +130,17 @@ Output: Return ONLY valid JSON object with "workflow" and "favorites" keys. No e
         return jsonResponse({ error: 'Failed to parse AI response' }, 500, origin);
       }
 
-      // Handle both formats: {workflow, favorites} or just array
+      // Handle both formats: {workflow, favorites, suggestedAdd} or just array
       let workflow = '';
       let favorites = [];
+      let suggestedAdd = null;
 
       if (Array.isArray(parsed)) {
         favorites = parsed;
       } else if (parsed.favorites && Array.isArray(parsed.favorites)) {
         workflow = parsed.workflow || '';
         favorites = parsed.favorites;
+        suggestedAdd = parsed.suggestedAdd || null;
       } else {
         return jsonResponse({ error: 'Invalid response format' }, 500, origin);
       }
@@ -144,7 +148,12 @@ Output: Return ONLY valid JSON object with "workflow" and "favorites" keys. No e
       // Post-process: ensure one URL per domain
       favorites = dedupeByDomain(favorites).slice(0, 15);
 
-      return jsonResponse({ workflow, favorites }, 200, origin);
+      // Validate suggestedAdd has required fields
+      if (suggestedAdd && (!suggestedAdd.url || !suggestedAdd.title)) {
+        suggestedAdd = null;
+      }
+
+      return jsonResponse({ workflow, favorites, suggestedAdd }, 200, origin);
 
     } catch (error) {
       console.error('Worker error:', error);
@@ -329,14 +338,17 @@ ${historyLines}
 </history>
 
 <output_format>
-Return ONLY a JSON object with two keys:
+Return ONLY a JSON object with three keys:
 {
   "workflow": "Brief 1-2 sentence description of inferred daily workflow",
   "favorites": [
     {"url": "https://...", "title": "Short Name (2-3 words)"},
     ...
-  ]
+  ],
+  "suggestedAdd": {"url": "https://...", "title": "Short Name", "reason": "Why this site is useful"}
 }
+
+The "suggestedAdd" must be a site the user visits regularly but didn't make the top 15 favorites. Pick something useful that would complement their workflow. The "reason" should be a short phrase explaining why it's worth adding (e.g., "You visit this daily", "Great for quick reference").
 
 No explanation. No markdown. No code blocks. Just the JSON object.
 </output_format>`;

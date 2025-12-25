@@ -16,6 +16,7 @@ const PROFILE_OPTIONS = [
   { value: 'marketer', label: 'Marketer' },
   { value: 'researcher', label: 'Researcher' },
   { value: 'founder', label: 'Founder' },
+  { value: 'personal', label: 'Personal use' },
   { value: 'other', label: 'Other' }
 ];
 
@@ -120,6 +121,7 @@ async function getHistoryForAI(days = 14) {
 
 /**
  * Call the AI worker to analyze history and get smart favorites
+ * Returns { favorites: [...], suggestedAdd: {...} }
  */
 async function analyzeWithAI(historyData, profile) {
   console.log('[AI Onboarding] Calling AI worker with profile:', profile);
@@ -145,7 +147,12 @@ async function analyzeWithAI(historyData, profile) {
   }
 
   console.log('[AI Onboarding] AI returned', data.favorites?.length, 'favorites');
-  return data.favorites || [];
+  console.log('[AI Onboarding] AI suggested to add:', data.suggestedAdd);
+
+  return {
+    favorites: data.favorites || [],
+    suggestedAdd: data.suggestedAdd || null
+  };
 }
 
 /**
@@ -164,8 +171,10 @@ async function quickImportWithAI(profile) {
     // 1. Get history data formatted for AI
     const historyData = await getHistoryForAI(14);
 
-    // 2. Call AI to get smart favorites
-    const aiFavorites = await analyzeWithAI(historyData, profile);
+    // 2. Call AI to get smart favorites and suggestedAdd
+    const aiResult = await analyzeWithAI(historyData, profile);
+    const aiFavorites = aiResult.favorites;
+    const suggestedAdd = aiResult.suggestedAdd;
 
     // 3. Add AI-selected favorites
     for (const fav of aiFavorites) {
@@ -176,13 +185,19 @@ async function quickImportWithAI(profile) {
     }
     summary.favorites = aiFavorites.length;
 
-    // 4. Track favorite URLs to avoid duplicates in workspaces
+    // 4. Store suggestedAdd for post-onboarding coach
+    if (suggestedAdd) {
+      await chrome.storage.local.set({ suggestedFavoriteToAdd: suggestedAdd });
+      console.log('[AI Onboarding] Stored suggestedAdd for post-onboarding:', suggestedAdd);
+    }
+
+    // 5. Track favorite URLs to avoid duplicates in workspaces
     const favoriteUrls = new Set(aiFavorites.map(f => f.url));
 
-    // 5. Get bookmark folders (same as before - only those used in last 10 days)
+    // 6. Get bookmark folders (same as before - only those used in last 10 days)
     const bookmarkFolders = await extractBookmarkFolders(true);
 
-    // 6. Track if we found Work/Personal folders
+    // 7. Track if we found Work/Personal folders
     let hasWorkFolder = false;
     let hasPersonalFolder = false;
     const workspaceUrls = new Set();
@@ -1273,19 +1288,21 @@ async function importAllBookmarks() {
 const COACH_STORAGE_KEY = 'postOnboardingCoach';
 
 const COACH_STEPS = {
-  INTRO: 0,             // "This is your Smart Grid"
-  CLEANUP_FAVORITES: 1, // Remove junk favorites
-  CLEANUP_WORKSPACES: 2,// Clean up bloated workspaces (30+ items)
-  SMART_SWITCH_1: 3,    // Click first (most used) favorite
-  SMART_SWITCH_2: 4,    // Click second favorite
-  SMART_SWITCH_3: 5,    // Click first again (the aha moment)
-  DUPLICATE_TAB: 6,     // Shift+Click to create duplicate
-  CHAOS_VIEW: 7,        // Show ungrouped tabs (the chaos)
-  MAGIC_MOMENT: 8,      // Group tabs (the transformation)
-  GROUPING_TRY: 9,      // Interactive: click group to expand/collapse
-  HIDE_TAB_BAR: 10,     // Platform-specific instructions to hide tab bar
-  IMMERSIVE_HINT: 11,   // Shortcut key to toggle panel
-  COMPLETE: 12
+  INTRO: 0,                // "This is your Smart Grid"
+  ADD_FAVORITE: 1,         // Teach adding favorites
+  WORKSPACE_INTRO: 2,      // Intro to workspaces section
+  WORKSPACE_TOGGLE: 3,     // Ask user to toggle Google Workspace
+  CLEANUP_WORKSPACES: 4,   // Clean up bloated workspaces (30+ items)
+  SMART_SWITCH_1: 5,       // Click first (most used) favorite
+  SMART_SWITCH_2: 6,       // Click second favorite
+  SMART_SWITCH_3: 7,       // Click first again (the aha moment)
+  DUPLICATE_TAB: 8,        // Shift+Click to create duplicate
+  CHAOS_VIEW: 9,           // Show ungrouped tabs (the chaos)
+  MAGIC_MOMENT: 10,        // Group tabs (the transformation)
+  GROUPING_TRY: 11,        // Interactive: click group to expand/collapse
+  HIDE_TAB_BAR: 12,        // Platform-specific instructions to hide tab bar
+  IMMERSIVE_HINT: 13,      // Shortcut key to toggle panel
+  COMPLETE: 14
 };
 
 // Track coach state during the flow
@@ -1294,10 +1311,14 @@ let coachFlowState = {
   firstFavoriteId: null,
   secondFavoriteId: null,
   clickCount: 0,
-  // Cleanup tracking
-  junkFavorites: [],        // Identified junk favorites
+  // Workspace cleanup tracking
   bloatedWorkspaces: [],    // Identified bloated workspaces (30+ items)
-  removedFavorites: 0
+  // Add favorite tracking
+  suggestedFavorite: null,  // Suggested favorite to add
+  addedFavoriteId: null,    // ID of the favorite after adding
+  // Workspace intro tracking
+  googleWorkspaceId: null,  // ID of Google Workspace
+  workspaceToggleCount: 0   // Number of times workspace was toggled
 };
 
 /**
@@ -1359,48 +1380,6 @@ async function checkExistingTabChaos() {
 
 // Generic favicon detection is now in components.js
 // Uses: isGenericFavicon(url), calibrateGenericFavicon(), initFaviconDetection()
-
-/**
- * Identify favorites to suggest for cleanup
- * Prioritizes: 1) items with generic globe favicon, 2) least used items
- */
-async function identifyJunkFavorites() {
-  const state = await Storage.getState();
-
-  if (state.favorites.length < 2) {
-    return [];
-  }
-
-  // Calibrate once at the start (uses function from components.js)
-  await calibrateGenericFavicon();
-
-  // Check for favorites with generic globe favicon
-  const genericFaviconFavorites = [];
-  for (const fav of state.favorites) {
-    // Use isGenericFavicon from components.js
-    if (await isGenericFavicon(fav.url)) {
-      genericFaviconFavorites.push({
-        ...fav,
-        reason: 'no-favicon'
-      });
-    }
-    // Limit to 2 for cleanup suggestion
-    if (genericFaviconFavorites.length >= 2) break;
-  }
-
-  // If we found items with generic favicons, suggest those
-  if (genericFaviconFavorites.length > 0) {
-    return genericFaviconFavorites;
-  }
-
-  // Fallback: suggest least used items (last in the array)
-  // Favorites array is ordered by usage: most used first, least used last
-  const leastUsedItems = state.favorites.slice(-2);
-  return leastUsedItems.map(fav => ({
-    ...fav,
-    reason: 'least-used'
-  }));
-}
 
 /**
  * Identify bloated workspaces (30+ items)
@@ -1577,74 +1556,10 @@ function showStepIntro(overlay, onNext, onSkip) {
       <div class="coach-content">
         <div class="coach-title">This is your Smart Grid</div>
         <div class="coach-subtitle">
-          Your top 15 most-used sites and below are your workspaces from bookmarks.<br>
-          <span style="opacity: 0.7; font-style: italic;">See anything that doesn't fit?</span>
+          Your most-used sites, one click away.
         </div>
         <div class="coach-actions">
-          <button class="coach-btn-primary" id="coach-next">Quick review</button>
-          <button class="coach-btn-skip" id="coach-skip">Looks good</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('coach-next').addEventListener('click', () => {
-    clearCoachHighlights();
-    onNext();
-  });
-  document.getElementById('coach-skip').addEventListener('click', () => {
-    clearCoachHighlights();
-    onSkip();
-  });
-}
-
-/**
- * Step 1: CLEANUP_FAVORITES - Give 2 specific options to remove
- */
-async function showStepCleanupFavorites(overlay, onNext, onSkip) {
-  const junkFavorites = await identifyJunkFavorites();
-  coachFlowState.junkFavorites = junkFavorites;
-
-  // If no junk favorites, skip to workspaces
-  if (junkFavorites.length === 0) {
-    onNext();
-    return;
-  }
-
-  // Highlight the junk favorites
-  highlightFavorites(junkFavorites.map(f => f.id));
-
-  // Build the message based on detection reason
-  let message = '';
-  const name1 = getFavoriteName(junkFavorites[0]);
-  const reason1 = junkFavorites[0].reason;
-
-  if (junkFavorites.length === 1) {
-    const reasonText = reason1 === 'no-favicon'
-      ? 'Missing icon — might not belong.'
-      : 'Least visited — might not need quick access.';
-    message = `
-      <strong>${name1}</strong><br>
-      <span style="font-size: 11px; opacity: 0.7">${reasonText}</span><br>
-      Right-click → Remove
-    `;
-  } else {
-    const name2 = getFavoriteName(junkFavorites[1]);
-    message = `
-      Remove one that doesn't fit:<br>
-      <strong>${name1}</strong> or <strong>${name2}</strong><br>
-      <span style="font-size: 11px; opacity: 0.7">Right-click → Remove</span>
-    `;
-  }
-
-  overlay.innerHTML = `
-    <div class="coach-card">
-      ${renderProgressDots(1)}
-      <div class="coach-content">
-        <div class="coach-title">Quick cleanup</div>
-        <div class="coach-subtitle">${message}</div>
-        <div class="coach-actions">
-          <button class="coach-btn-primary" id="coach-next">Done</button>
+          <button class="coach-btn-primary" id="coach-next">Take a quick tour</button>
           <button class="coach-btn-skip" id="coach-skip">Skip</button>
         </div>
       </div>
@@ -1653,7 +1568,6 @@ async function showStepCleanupFavorites(overlay, onNext, onSkip) {
 
   document.getElementById('coach-next').addEventListener('click', () => {
     clearCoachHighlights();
-    coachFlowState.removedFavorites++;
     onNext();
   });
   document.getElementById('coach-skip').addEventListener('click', () => {
@@ -1663,7 +1577,248 @@ async function showStepCleanupFavorites(overlay, onNext, onSkip) {
 }
 
 /**
- * Step 2: CLEANUP_WORKSPACES - Clean up bloated workspaces (30+ items)
+ * Step 1: ADD_FAVORITE - Teach adding favorites with suggested site
+ */
+async function showStepAddFavorite(overlay, onNext, onSkip) {
+  // Get the suggested favorite from storage
+  const result = await chrome.storage.local.get(['suggestedFavoriteToAdd']);
+  const suggestedFavorite = result.suggestedFavoriteToAdd;
+
+  // If no suggestion, skip this step
+  if (!suggestedFavorite || !suggestedFavorite.url) {
+    console.log('[Coach] No suggested favorite found, skipping ADD_FAVORITE step');
+    onNext();
+    return;
+  }
+
+  coachFlowState.suggestedFavorite = suggestedFavorite;
+
+  // Highlight the + button
+  const addBtn = document.querySelector('.fav-add-btn');
+  if (addBtn) {
+    addBtn.classList.add('coach-target');
+  }
+
+  const siteName = suggestedFavorite.title || 'this site';
+  const reason = suggestedFavorite.reason || 'You visit this often';
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(2)}
+      <div class="coach-content">
+        <div class="coach-title">Add a favorite</div>
+        <div class="coach-subtitle">
+          ${reason}.<br>
+          Click <strong>+</strong> to add <strong>${siteName}</strong>.
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Click the + button...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    // Clear the suggested favorite from storage
+    chrome.storage.local.remove(['suggestedFavoriteToAdd']);
+    onSkip();
+  });
+
+  // Return the suggested favorite for the modal pre-fill logic
+  return suggestedFavorite;
+}
+
+/**
+ * Step 2b: After favorite is added, show congratulation
+ */
+async function showStepAddFavoriteComplete(overlay, onNext) {
+  // Clear any remaining highlights
+  const addBtn = document.querySelector('.fav-add-btn');
+  if (addBtn) {
+    addBtn.classList.remove('coach-target');
+  }
+  clearCoachHighlights();
+
+  // Show congratulation message
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(2)}
+      <div class="coach-content">
+        <div class="coach-title">Nice! 🎉</div>
+        <div class="coach-subtitle">
+          That's how you add favorites.<br>
+          Click <strong>+</strong> anytime to add more sites.
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Got it</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', () => {
+    onNext();
+  });
+}
+
+/**
+ * Highlight the entire workspaces section
+ */
+function highlightWorkspacesSection() {
+  const section = document.querySelector('.workspaces-section');
+  if (section) {
+    section.classList.add('coach-highlight');
+  }
+}
+
+/**
+ * Find Google Workspace and ensure it's collapsed
+ */
+async function collapseGoogleWorkspaceForCoach() {
+  const state = await Storage.getState();
+  for (const [id, workspace] of Object.entries(state.workspaces)) {
+    if (workspace.name === 'Google Workspace') {
+      if (!workspace.collapsed) {
+        await Storage.updateWorkspace(id, { collapsed: true });
+      }
+      return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Step 3: WORKSPACE_INTRO - Introduce the workspaces section
+ */
+async function showStepWorkspaceIntro(overlay, onNext, onSkip) {
+  // Ensure Google Workspace is collapsed before showing this step
+  await collapseGoogleWorkspaceForCoach();
+
+  // Trigger UI refresh to show collapsed state
+  window.dispatchEvent(new CustomEvent('storage-updated', { detail: await Storage.getState() }));
+
+  // Highlight the entire workspaces section
+  highlightWorkspacesSection();
+
+  // Scroll to workspaces section
+  const workspacesSection = document.querySelector('.workspaces-section');
+  if (workspacesSection) {
+    workspacesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(3)}
+      <div class="coach-content">
+        <div class="coach-title">These are your Workspaces</div>
+        <div class="coach-subtitle">
+          Organize tabs by project, context, or whatever makes sense to you.
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Got it</button>
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', () => {
+    clearCoachHighlights();
+    onNext();
+  });
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+}
+
+/**
+ * Step 4: WORKSPACE_TOGGLE - Ask user to toggle Google Workspace
+ */
+async function showStepWorkspaceToggle(overlay, onSkip) {
+  const state = await Storage.getState();
+
+  // Find Google Workspace
+  let googleWorkspaceId = null;
+  for (const [id, workspace] of Object.entries(state.workspaces)) {
+    if (workspace.name === 'Google Workspace') {
+      googleWorkspaceId = id;
+      break;
+    }
+  }
+
+  // If no Google Workspace, skip this step
+  if (!googleWorkspaceId) {
+    return null;
+  }
+
+  // Store for toggle detection
+  coachFlowState.googleWorkspaceId = googleWorkspaceId;
+  coachFlowState.workspaceToggleCount = 0;
+
+  // Highlight the Google Workspace
+  highlightWorkspace(googleWorkspaceId);
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(4)}
+      <div class="coach-content">
+        <div class="coach-title">Try it out</div>
+        <div class="coach-subtitle">
+          Click on <strong>Google Workspace</strong> to expand it.<br>
+          <span style="opacity: 0.7;">Toggle it open and closed to see how it works.</span>
+        </div>
+        <div class="coach-waiting">
+          <span class="coach-waiting-text coach-pulse">Click the workspace...</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-skip" id="coach-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-skip').addEventListener('click', () => {
+    clearCoachHighlights();
+    onSkip();
+  });
+
+  return googleWorkspaceId;
+}
+
+/**
+ * Step 4b: After workspace toggle, show success and proceed
+ */
+function showStepWorkspaceToggleComplete(overlay, onNext) {
+  clearCoachHighlights();
+
+  overlay.innerHTML = `
+    <div class="coach-card">
+      ${renderProgressDots(4)}
+      <div class="coach-content">
+        <div class="coach-title">Nice! 👍</div>
+        <div class="coach-subtitle">
+          Expand when you need it. Collapse when you don't.<br>
+          <span style="opacity: 0.7;">Keeps your sidebar clean.</span>
+        </div>
+        <div class="coach-actions">
+          <button class="coach-btn-primary" id="coach-next">Got it</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coach-next').addEventListener('click', () => {
+    onNext();
+  });
+}
+
+/**
+ * Step 4: CLEANUP_WORKSPACES - Clean up bloated workspaces (30+ items)
  */
 async function showStepCleanupWorkspaces(overlay, onNext, onSkip) {
   const bloatedWorkspaces = await identifyBloatedWorkspaces();
@@ -2332,15 +2487,55 @@ async function startPostOnboardingCoach() {
 
     switch (step) {
       case COACH_STEPS.INTRO:
-        showStepIntro(overlay, () => goToStep(COACH_STEPS.CLEANUP_FAVORITES), skip);
+        showStepIntro(overlay, () => goToStep(COACH_STEPS.ADD_FAVORITE), skip);
         break;
 
-      case COACH_STEPS.CLEANUP_FAVORITES:
-        await showStepCleanupFavorites(
+      case COACH_STEPS.ADD_FAVORITE:
+        const suggestion = await showStepAddFavorite(
           overlay,
-          () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES),
-          skip
+          () => goToStep(COACH_STEPS.WORKSPACE_INTRO),
+          () => goToStep(COACH_STEPS.WORKSPACE_INTRO)
         );
+
+        // If we got a suggestion, set up the callback to handle when favorite is added
+        if (suggestion) {
+          setOnFavoriteAddedCallback(async () => {
+            // Show congratulation and move to workspace intro
+            await showStepAddFavoriteComplete(
+              overlay,
+              () => goToStep(COACH_STEPS.WORKSPACE_INTRO)
+            );
+          });
+        }
+        break;
+
+      case COACH_STEPS.WORKSPACE_INTRO:
+        await showStepWorkspaceIntro(
+          overlay,
+          () => goToStep(COACH_STEPS.WORKSPACE_TOGGLE),
+          () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES) // Skip goes to cleanup
+        );
+        break;
+
+      case COACH_STEPS.WORKSPACE_TOGGLE:
+        const wsId = await showStepWorkspaceToggle(
+          overlay,
+          () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES)
+        );
+
+        // If no Google Workspace, skip to cleanup
+        if (!wsId) {
+          goToStep(COACH_STEPS.CLEANUP_WORKSPACES);
+        } else {
+          // Set up callback for workspace toggle
+          setOnWorkspaceToggledCallback(async () => {
+            // Show success and move to cleanup
+            showStepWorkspaceToggleComplete(
+              overlay,
+              () => goToStep(COACH_STEPS.CLEANUP_WORKSPACES)
+            );
+          });
+        }
         break;
 
       case COACH_STEPS.CLEANUP_WORKSPACES:
@@ -2505,12 +2700,70 @@ async function onGroupHeaderClicked() {
   }
 }
 
+// Callback holder for ADD_FAVORITE step completion
+let onFavoriteAddedCallback = null;
+
+/**
+ * Called when a favorite is added during the ADD_FAVORITE coach step
+ */
+function onFavoriteAdded(favoriteId) {
+  if (onFavoriteAddedCallback) {
+    coachFlowState.addedFavoriteId = favoriteId;
+    onFavoriteAddedCallback();
+    onFavoriteAddedCallback = null;
+  }
+}
+
+/**
+ * Set callback for when favorite is added
+ */
+function setOnFavoriteAddedCallback(callback) {
+  onFavoriteAddedCallback = callback;
+}
+
+// Callback holder for WORKSPACE_TOGGLE step completion
+let onWorkspaceToggledCallback = null;
+
+/**
+ * Called when a workspace is toggled during the WORKSPACE_TOGGLE coach step
+ */
+async function onWorkspaceToggled(workspaceId) {
+  const coachState = await getCoachState();
+
+  if (coachState.completed || coachState.skipped) return;
+
+  const step = coachState.currentStep;
+
+  if (step === COACH_STEPS.WORKSPACE_TOGGLE) {
+    // User toggled the workspace
+    coachFlowState.workspaceToggleCount++;
+    console.log('[Coach] Workspace toggled, count:', coachFlowState.workspaceToggleCount);
+
+    if (onWorkspaceToggledCallback) {
+      onWorkspaceToggledCallback();
+      onWorkspaceToggledCallback = null;
+    }
+  }
+}
+
+/**
+ * Set callback for when workspace is toggled
+ */
+function setOnWorkspaceToggledCallback(callback) {
+  onWorkspaceToggledCallback = callback;
+}
+
 // Export for use in sidepanel.js
 window.PostOnboardingCoach = {
   start: startPostOnboardingCoach,
   onPanelVisibilityChanged,
   onFavoriteClicked,
+  onFavoriteAdded,
   onDuplicateCreated,
   onGroupHeaderClicked,
+  onWorkspaceToggled,
   shouldShowCoach
 };
+
+// Expose coachFlowState for sidepanel.js to access
+window.coachFlowState = coachFlowState;
