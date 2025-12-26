@@ -1164,35 +1164,37 @@ function handleSearch(e) {
 async function performSearch(query) {
   const results = [];
 
-  // Search open tabs first (highest priority)
+  // Get all open tabs first (for de-duplication)
+  let allOpenTabs = [];
   try {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
-    tabs.forEach(tab => {
-      if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) return;
-
-      const title = (tab.title || '').toLowerCase();
-      const url = tab.url.toLowerCase();
-      if (title.includes(query) || url.includes(query)) {
-        results.push({
-          type: 'open-tab',
-          title: tab.title || new URL(tab.url).hostname,
-          url: tab.url,
-          tabId: tab.id,
-          badge: 'Open Tab'
-        });
-      }
-    });
+    allOpenTabs = await chrome.tabs.query({ currentWindow: true });
+    allOpenTabs = allOpenTabs.filter(tab => tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://'));
   } catch (err) {
     console.error('[Search] Error querying tabs:', err);
   }
 
-  // Search favorites
+  // Search open tabs (highest priority)
+  allOpenTabs.forEach(tab => {
+    const title = (tab.title || '').toLowerCase();
+    const url = tab.url.toLowerCase();
+    if (title.includes(query) || url.includes(query)) {
+      results.push({
+        type: 'open-tab',
+        title: tab.title || new URL(tab.url).hostname,
+        url: tab.url,
+        tabId: tab.id,
+        badge: 'Open Tab'
+      });
+    }
+  });
+
+  // Search favorites (skip if URL is already open in ANY tab)
   state.favorites.forEach(fav => {
     const title = (fav.title || '').toLowerCase();
     const url = fav.url.toLowerCase();
     if (title.includes(query) || url.includes(query)) {
-      // Check if this favorite is already in results as an open tab
-      const alreadyOpen = results.some(r => r.type === 'open-tab' && matchesUrl(r.url, fav.url));
+      // Check if this favorite is already open in ANY tab (not just search results)
+      const alreadyOpen = allOpenTabs.some(tab => matchesUrl(tab.url, fav.url));
       if (!alreadyOpen) {
         results.push({
           type: 'favorite',
@@ -1205,14 +1207,14 @@ async function performSearch(query) {
     }
   });
 
-  // Search workspace items
+  // Search workspace items (skip if URL is already open in ANY tab)
   Object.values(state.workspaces).forEach(workspace => {
     workspace.items.forEach(item => {
       const alias = (item.alias || '').toLowerCase();
       const url = item.url.toLowerCase();
       if (alias.includes(query) || url.includes(query)) {
-        // Check if this item is already in results as an open tab
-        const alreadyOpen = results.some(r => r.type === 'open-tab' && matchesUrl(r.url, item.url));
+        // Check if this item is already open in ANY tab (not just search results)
+        const alreadyOpen = allOpenTabs.some(tab => matchesUrl(tab.url, item.url));
         if (!alreadyOpen) {
           results.push({
             type: 'workspace-item',
@@ -1225,6 +1227,73 @@ async function performSearch(query) {
       }
     });
   });
+
+  // Collect all URLs already in results (for history de-duplication)
+  const existingUrls = new Set();
+  results.forEach(r => {
+    try {
+      existingUrls.add(new URL(r.url).hostname);
+    } catch {}
+  });
+  // Also add favorites and workspace URLs (even if not in results)
+  state.favorites.forEach(fav => {
+    try { existingUrls.add(new URL(fav.url).hostname); } catch {}
+  });
+  Object.values(state.workspaces).forEach(ws => {
+    ws.items.forEach(item => {
+      try { existingUrls.add(new URL(item.url).hostname); } catch {}
+    });
+  });
+
+  // Search history (last 24 hours, grouped by domain, last visited URL per domain)
+  try {
+    const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+    const historyItems = await chrome.history.search({
+      text: query,
+      startTime: oneDayAgo,
+      maxResults: 100
+    });
+
+    // Group by domain, keep only the most recently visited URL per domain
+    const domainMap = new Map(); // domain -> { url, title, lastVisit }
+
+    historyItems.forEach(item => {
+      if (!item.url || item.url.startsWith('chrome://') || item.url.startsWith('edge://')) return;
+
+      try {
+        const hostname = new URL(item.url).hostname;
+
+        // Skip if this domain is already in open tabs, favorites, or workspaces
+        if (existingUrls.has(hostname)) return;
+        // Skip if already open in a tab
+        if (allOpenTabs.some(tab => matchesUrl(tab.url, item.url))) return;
+
+        const existing = domainMap.get(hostname);
+        if (!existing || item.lastVisitTime > existing.lastVisit) {
+          domainMap.set(hostname, {
+            url: item.url,
+            title: item.title || hostname,
+            lastVisit: item.lastVisitTime
+          });
+        }
+      } catch {}
+    });
+
+    // Add history results (limit to 5)
+    let historyCount = 0;
+    for (const [hostname, data] of domainMap) {
+      if (historyCount >= 5) break;
+      results.push({
+        type: 'history',
+        title: data.title,
+        url: data.url,
+        badge: 'History'
+      });
+      historyCount++;
+    }
+  } catch (err) {
+    console.error('[Search] Error querying history:', err);
+  }
 
   showSearchResults(results, query);
 }
@@ -1269,7 +1338,7 @@ function showSearchResults(results, query = '') {
         // Switch to existing tab
         await chrome.tabs.update(result.tabId, { active: true });
       } else {
-        // Open new tab for favorites/workspace items
+        // Open new tab for favorites/workspace items/history
         openUrl(result.url, 'new-tab');
       }
 
