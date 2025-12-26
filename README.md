@@ -12,7 +12,7 @@ Tabwise brings Arc Browser's vertical tab experience to Chrome, Brave, Edge, and
 
 > *Not affiliated with Arc Browser or The Browser Company. This is an independent extension inspired by a workflow many people love.*
 
-[![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-4285F4?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/tabwise-vertical-tabs-wor/YOUR_EXTENSION_ID)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-4285F4?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/tabwise-vertical-tabs-wor/ooogpghkhnjofplbejfaonlnibaigaeh)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/badge/Source-GitHub-181717?logo=github)](https://github.com/SwajanJain/tabwise)
 
@@ -167,7 +167,7 @@ Get the organizational power of Arc in the browser you already use.
 
 ### Chrome Web Store
 
-[**Install Tabwise**](https://chromewebstore.google.com/detail/tabwise-vertical-tabs-wor/YOUR_EXTENSION_ID)
+[**Install Tabwise**](https://chromewebstore.google.com/detail/tabwise-vertical-tabs-wor/ooogpghkhnjofplbejfaonlnibaigaeh)
 
 ### From Source
 
