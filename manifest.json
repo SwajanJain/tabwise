@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tabwise: Vertical Tabs & Workspaces",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "Arc-style vertical tabs for Chrome. Smart switching, workspaces, immersive mode. No duplicate tabs. Privacy-first.",
   "homepage_url": "https://github.com/SwajanJain/tabwise",
   "permissions": [
