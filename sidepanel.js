@@ -44,9 +44,9 @@ async function calculateTabStates() {
       continue;
     }
 
-    // Check favorites (use precise matching for Google Docs/Sheets/Slides)
+    // Check favorites (domain-level matching, with Google Docs/Sheets/Slides distinction)
     for (const fav of state.favorites) {
-      if (matchesUrlPrecise(tab.url, fav.url)) {
+      if (matchesUrlForFavoriteIndicator(tab.url, fav.url)) {
         if (!tabStates.favorites[fav.id]) {
           tabStates.favorites[fav.id] = { tabCount: 0, isActive: false, tabIds: [] };
         }
@@ -76,6 +76,33 @@ async function calculateTabStates() {
   }
 }
 
+// Domain-level matching for favorite indicators (Arc-style)
+// Counts all tabs on the same domain, with special handling for Google Docs/Sheets/Slides
+function matchesUrlForFavoriteIndicator(tabUrl, targetUrl) {
+  try {
+    const tabUrlObj = new URL(tabUrl);
+    const targetUrlObj = new URL(targetUrl);
+
+    if (tabUrlObj.hostname !== targetUrlObj.hostname) {
+      return false;
+    }
+
+    // Special handling for docs.google.com (Docs, Sheets, Slides share same domain)
+    if (tabUrlObj.hostname === 'docs.google.com') {
+      const tabAppType = tabUrlObj.pathname.split('/')[1];
+      const targetAppType = targetUrlObj.pathname.split('/')[1];
+      return tabAppType === targetAppType;
+    }
+
+    // For all other sites, domain-level matching
+    // When you favorite "news.almaconnect.com/feed", indicator counts
+    // ALL tabs on "news.almaconnect.com"
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Simple URL matching helper (domain-level matching like Arc)
 function matchesUrl(tabUrl, targetUrl) {
   try {
@@ -83,10 +110,6 @@ function matchesUrl(tabUrl, targetUrl) {
     const targetUrlObj = new URL(targetUrl);
 
     // Arc-style behavior: Match at domain level
-    // When you favorite "news.almaconnect.com/feed", it should match
-    // ANY page on "news.almaconnect.com" (including /smartpublish, /settings, etc.)
-
-    // This ensures indicators stay visible when navigating within the same site
     return tabUrlObj.hostname === targetUrlObj.hostname;
   } catch {
     return false;
@@ -122,8 +145,13 @@ function matchesUrlPrecise(tabUrl, targetUrl) {
       }
     }
 
-    // For all other sites, domain-level matching is fine
-    return true;
+    // For all other sites, use prefix matching
+    // Tab matches if it's at the target path OR navigated deeper within it
+    // e.g., target "/inbox" matches tab "/inbox" or "/inbox/message/123"
+    // but "/admin/dashboard" does NOT match "/admin/settings"
+    const tabPath = tabUrlObj.pathname.replace(/\/+$/, '') || '/';
+    const targetPath = targetUrlObj.pathname.replace(/\/+$/, '') || '/';
+    return tabPath === targetPath || tabPath.startsWith(targetPath + '/');
   } catch {
     return false;
   }
