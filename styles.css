@@ -2226,6 +2226,133 @@ body {
   color: var(--text-muted);
 }
 
+/* Skeleton Loading Screen */
+.onboarding-loading {
+  text-align: center;
+  padding: var(--spacing-xl) var(--spacing-lg);
+}
+
+.onboarding-loading-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-lg);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: var(--spacing-xl);
+  padding: 0 var(--spacing-sm);
+}
+
+.skeleton-item {
+  aspect-ratio: 1;
+  background: linear-gradient(90deg, var(--bg-subtle) 25%, var(--bg-hover) 50%, var(--bg-subtle) 75%);
+  background-size: 200% 100%;
+  border-radius: 12px;
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+.skeleton-item:nth-child(1) { animation-delay: 0s; }
+.skeleton-item:nth-child(2) { animation-delay: 0.1s; }
+.skeleton-item:nth-child(3) { animation-delay: 0.2s; }
+.skeleton-item:nth-child(4) { animation-delay: 0.3s; }
+.skeleton-item:nth-child(5) { animation-delay: 0.1s; }
+.skeleton-item:nth-child(6) { animation-delay: 0.2s; }
+.skeleton-item:nth-child(7) { animation-delay: 0.3s; }
+.skeleton-item:nth-child(8) { animation-delay: 0.4s; }
+.skeleton-item:nth-child(9) { animation-delay: 0.2s; }
+.skeleton-item:nth-child(10) { animation-delay: 0.3s; }
+.skeleton-item:nth-child(11) { animation-delay: 0.4s; }
+.skeleton-item:nth-child(12) { animation-delay: 0.5s; }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Progress Steps */
+.loading-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+.loading-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: all 0.3s ease;
+}
+
+.loading-step.active {
+  color: var(--text-primary);
+}
+
+.loading-step.completed {
+  color: var(--accent-color);
+}
+
+.loading-step-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.loading-step.pending .loading-step-icon {
+  width: 8px;
+  height: 8px;
+  margin: 6px;
+  border-radius: 50%;
+  background: var(--border-medium);
+}
+
+.loading-step.active .loading-step-icon {
+  width: 8px;
+  height: 8px;
+  margin: 6px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  animation: pulse 1s infinite;
+}
+
+.loading-step.completed .loading-step-icon::after {
+  content: '✓';
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+
+/* Staggered reveal for favorites */
+.favorites-grid .favorite-item.reveal {
+  animation: revealFavorite 0.4s ease-out forwards;
+}
+
+@keyframes revealFavorite {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* ========================================
    POST-ONBOARDING COACH
    ======================================== */

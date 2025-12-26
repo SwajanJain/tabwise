@@ -825,6 +825,80 @@ function isFirstLaunch(state) {
 }
 
 /**
+ * Show loading screen with skeleton grid and progress steps
+ */
+function showLoadingScreen() {
+  const skeletonItems = Array(12).fill('<div class="skeleton-item"></div>').join('');
+
+  showModal('', `
+    <div class="onboarding-loading">
+      <h2 class="onboarding-loading-title">Creating your workspace...</h2>
+
+      <div class="skeleton-grid">
+        ${skeletonItems}
+      </div>
+
+      <div class="loading-progress">
+        <div class="loading-step active" data-step="history">
+          <span class="loading-step-icon"></span>
+          <span>Reading your browsing history</span>
+        </div>
+        <div class="loading-step pending" data-step="patterns">
+          <span class="loading-step-icon"></span>
+          <span>Finding your workflow patterns</span>
+        </div>
+        <div class="loading-step pending" data-step="favorites">
+          <span class="loading-step-icon"></span>
+          <span>Creating personalized favorites</span>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+/**
+ * Update loading progress step
+ * @param {string} completedStep - Step that just completed
+ * @param {string} activeStep - Next active step (or null if done)
+ */
+function updateLoadingStep(completedStep, activeStep) {
+  const steps = document.querySelectorAll('.loading-step');
+  let foundCompleted = false;
+
+  steps.forEach(step => {
+    const stepName = step.dataset.step;
+
+    if (stepName === completedStep) {
+      step.classList.remove('active', 'pending');
+      step.classList.add('completed');
+      foundCompleted = true;
+    } else if (stepName === activeStep) {
+      step.classList.remove('pending', 'completed');
+      step.classList.add('active');
+    } else if (foundCompleted && !activeStep) {
+      // All done
+      step.classList.remove('active', 'pending');
+      step.classList.add('completed');
+    }
+  });
+}
+
+/**
+ * Trigger staggered reveal animation on favorites grid
+ */
+function triggerFavoritesReveal() {
+  // Wait a bit for the UI to render
+  setTimeout(() => {
+    const favoriteItems = document.querySelectorAll('.favorites-grid .favorite-item');
+    favoriteItems.forEach((item, index) => {
+      setTimeout(() => {
+        item.classList.add('reveal');
+      }, index * 80); // 80ms delay between each
+    });
+  }, 100);
+}
+
+/**
  * Show onboarding welcome modal
  */
 function showOnboardingModal(onComplete) {
@@ -909,32 +983,58 @@ function showOnboardingModal(onComplete) {
 
     const selectedProfiles = [profile1, profile2].filter(p => p && p !== '' && p !== 'other');
 
-    // Show loading state
-    const btn = document.getElementById('quick-import-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<span>Analyzing your browsing...</span>';
-
     // Check if Google Workspace should be added
     const shouldAddGoogleWorkspace = document.getElementById('add-google-workspace-checkbox').checked;
 
-    // Add Google Workspace FIRST (so it appears at top)
-    if (shouldAddGoogleWorkspace) {
-      await createGoogleWorkspace();
-    }
+    // Show skeleton loading screen
+    showLoadingScreen();
 
-    // Run AI-powered import with selected profiles
-    const result = await quickImportWithAI(selectedProfiles);
+    try {
+      // Add Google Workspace FIRST (so it appears at top)
+      if (shouldAddGoogleWorkspace) {
+        await createGoogleWorkspace();
+      }
 
-    if (result.success) {
-      // After creating workspaces, keep only Google Workspace expanded
-      await collapseNonGoogleWorkspaces();
+      // Step 1: History - complete after a moment (actual history read is fast)
+      await new Promise(resolve => setTimeout(resolve, 800));
+      updateLoadingStep('history', 'patterns');
+
+      // Step 2: Patterns - AI analysis (this takes the longest)
+      // Start the AI call
+      const resultPromise = quickImportWithAI(selectedProfiles);
+
+      // Update to step 3 after AI starts processing (simulated timing)
+      setTimeout(() => {
+        updateLoadingStep('patterns', 'favorites');
+      }, 2500);
+
+      // Wait for actual result
+      const result = await resultPromise;
+
+      if (result.success) {
+        // Complete all steps
+        updateLoadingStep('favorites', null);
+
+        // Small delay to show completion, then close
+        await new Promise(resolve => setTimeout(resolve, 600));
+
+        // After creating workspaces, keep only Google Workspace expanded
+        await collapseNonGoogleWorkspaces();
+        hideModal();
+
+        // Trigger staggered reveal animation on favorites
+        triggerFavoritesReveal();
+
+        // Go directly to post-onboarding coach (skip old screens 2 & 3)
+        if (onComplete) onComplete();
+      } else {
+        hideModal();
+        alert('Import failed. Please try again or start empty.');
+      }
+    } catch (error) {
+      console.error('[Onboarding] Import error:', error);
       hideModal();
-      // Go directly to post-onboarding coach (skip old screens 2 & 3)
-      if (onComplete) onComplete();
-    } else {
       alert('Import failed. Please try again or start empty.');
-      btn.disabled = false;
-      btn.innerHTML = 'Set up from my browsing history';
     }
   });
 
